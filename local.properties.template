@@ -1,0 +1,24 @@
+# ===== 本机 SDK 路径 =====
+sdk.dir=D\:\\Android\\Sdk
+
+# ===== 天地图 key（https://console.tianditu.gov.cn 申请）=====
+TIANDITU_KEY=your_tianditu_key
+TIANDITU_KEY_YUNNAN=your_tianditu_key_yunnan
+
+# ===== 高德定位 key（https://lbs.amap.com 申请 Android 平台 Key）=====
+AMAP_KEY=your_amap_android_key
+
+# ===== 内网 PMS / 生产管理系统 =====
+PMS_BASE_URL=http://10.0.0.1:8080/
+
+# ===== 位置共享 WebSocket =====
+WS_LOCATION_URL=wss://your-server/ws/location
+
+# ===== 自建瓦片服务器 (%7Bz%7D 或 {z} 均可) =====
+TILE_SERVER_URL=http://10.0.0.1:8090/tiles/{z}/{x}/{y}.png
+
+# ===== 签名（release 打包用；不配置则自动用 debug 签名）=====
+RELEASE_STORE_FILE=keystore/powerline.jks
+RELEASE_STORE_PASSWORD=your_store_password
+RELEASE_KEY_ALIAS=powerline
+RELEASE_KEY_PASSWORD=your_key_password

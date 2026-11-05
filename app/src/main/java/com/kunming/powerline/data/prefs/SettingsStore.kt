@@ -1,0 +1,85 @@
+package com.kunming.powerline.data.prefs
+
+import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.dataStore by preferencesDataStore(name = "settings")
+
+/**
+ * 用户设置（DataStore Preferences）
+ */
+@Singleton
+class SettingsStore @Inject constructor(private val context: Context) {
+
+    private object Keys {
+        val BASEMAP = stringPreferencesKey("basemap")
+        val TEXT_SIZE = floatPreferencesKey("tower_text_size")
+        val ROOM_ID = stringPreferencesKey("share_room_id")
+        val SHARE_ENABLED = booleanPreferencesKey("share_enabled")
+        val SHOW_COMPASS = booleanPreferencesKey("show_compass")
+        val TRUE_NORTH = booleanPreferencesKey("true_north")
+        val LAYER_STATE = stringPreferencesKey("layer_state")
+        val USER_ID = stringPreferencesKey("user_id")
+        val VOLTAGE_FILTER = stringPreferencesKey("voltage_filter")
+        val OFFLINE_MODE = booleanPreferencesKey("offline_mode")
+        val GROUP_ID = intPreferencesKey("current_group")
+    }
+
+    private val prefs = context.dataStore.data
+
+    val basemap: Flow<String> = prefs.map { it[Keys.BASEMAP] ?: "YN_SATELLITE" }
+    val textSize: Flow<Float> = prefs.map { it[Keys.TEXT_SIZE] ?: 11f }
+    val roomId: Flow<String> = prefs.map { it[Keys.ROOM_ID] ?: "" }
+    val shareEnabled: Flow<Boolean> = prefs.map { it[Keys.SHARE_ENABLED] ?: false }
+    val showCompass: Flow<Boolean> = prefs.map { it[Keys.SHOW_COMPASS] ?: true }
+    val trueNorth: Flow<Boolean> = prefs.map { it[Keys.TRUE_NORTH] ?: false }
+    val offlineMode: Flow<Boolean> = prefs.map { it[Keys.OFFLINE_MODE] ?: false }
+    val layerState: Flow<String> = prefs.map { it[Keys.LAYER_STATE] ?: "" }
+    val voltageFilter: Flow<String> = prefs.map { it[Keys.VOLTAGE_FILTER] ?: "500,220,110,35" }
+    val groupId: Flow<Int> = prefs.map { it[Keys.GROUP_ID] ?: -1 }
+
+    suspend fun setBasemap(v: String) = context.dataStore.edit { it[Keys.BASEMAP] = v }
+    suspend fun setTextSize(v: Float) = context.dataStore.edit { it[Keys.TEXT_SIZE] = v.coerceIn(8f, 20f) }
+    suspend fun setRoomId(v: String) = context.dataStore.edit { it[Keys.ROOM_ID] = v }
+    suspend fun setShareEnabled(v: Boolean) = context.dataStore.edit { it[Keys.SHARE_ENABLED] = v }
+    suspend fun setShowCompass(v: Boolean) = context.dataStore.edit { it[Keys.SHOW_COMPASS] = v }
+    suspend fun setTrueNorth(v: Boolean) = context.dataStore.edit { it[Keys.TRUE_NORTH] = v }
+    suspend fun setOfflineMode(v: Boolean) = context.dataStore.edit { it[Keys.OFFLINE_MODE] = v }
+    suspend fun setLayerState(v: String) = context.dataStore.edit { it[Keys.LAYER_STATE] = v }
+    suspend fun setVoltageFilter(v: String) = context.dataStore.edit { it[Keys.VOLTAGE_FILTER] = v }
+    suspend fun setGroupId(v: Int) = context.dataStore.edit { it[Keys.GROUP_ID] = v }
+
+    suspend fun saveCamera(lon: Double, lat: Double, zoom: Float) = context.dataStore.edit {
+        it[stringPreferencesKey("last_lon")] = lon.toString()
+        it[stringPreferencesKey("last_lat")] = lat.toString()
+        it[floatPreferencesKey("last_zoom")] = zoom
+    }
+
+    suspend fun lastCamera(): Triple<Double, Double, Float>? {
+        val p = prefs.first()
+        val lon = p[stringPreferencesKey("last_lon")]?.toDoubleOrNull() ?: return null
+        val lat = p[stringPreferencesKey("last_lat")]?.toDoubleOrNull() ?: return null
+        val zoom = p[floatPreferencesKey("last_zoom")] ?: 12f
+        return Triple(lon, lat, zoom)
+    }
+
+    /** 首次使用生成稳定 userId（位置共享用） */
+    suspend fun ensureUserId(): String {
+        val existing = prefs.first()[Keys.USER_ID]
+        if (!existing.isNullOrBlank()) return existing
+        val id = "user-" + UUID.randomUUID().toString().replace("-", "").take(6)
+        context.dataStore.edit { it[Keys.USER_ID] = id }
+        return id
+    }
+}
