@@ -106,7 +106,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val tracking by vm.tracking.collectAsStateWithLifecycle()
     val followMode by vm.followMode.collectAsStateWithLifecycle()
     val heading by vm.heading.collectAsStateWithLifecycle()
-    val statusBar by vm.statusBar.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val layerVersion by vm.layerVersion.collectAsStateWithLifecycle()
     val selectedTower by vm.selectedTower.collectAsStateWithLifecycle()
@@ -250,12 +249,11 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         }
     }
 
-    // 用户手势拖动/缩放地图 -> 自动退出跟随，避免镜头被"抢"回去
+    // 用户手势拖动/缩放地图 -> 静默退出跟随，不弹提示（避免每次打开都打扰操作）
     LaunchedEffect(controller) {
         controller.onUserGesture = {
             if (vm.followMode.value) {
                 vm.setFollowMode(false)
-                navInfo = "已退出跟随"
             }
         }
     }
@@ -268,9 +266,10 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         when {
             !autoCentered -> {
                 autoCentered = true
+                // 首次定位只居中到当前位置，不进入跟随模式：
+                // 过去这里会自动开启跟随，用户一拖地图就退出并弹出「已退出跟随」，
+                // 每次打开 App 都会被打断，巡检时反而碍事。
                 controller.easeTo(loc.lon, loc.lat, 16.0)
-                // 默认导航视角：镜头正上方 = 手机朝向
-                vm.setFollowMode(true)
             }
             followMode -> {
                 // 跟随：地图中心 = 当前位置，正上方 = 手机朝向
@@ -462,19 +461,15 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 }
             },
             onLocate = {
-                // 定位按钮 = 跟随开关：开启后地图随位置移动、正上方对准手机朝向
-                if (followMode) {
-                    vm.setFollowMode(false)
-                    navInfo = "已退出跟随"
+                // 定位按钮 = 单次回到当前位置。
+                // 跟随模式已取消（打开就跟随会抢镜头，一拖动又弹「已退出跟随」）。
+                vm.setFollowMode(false)
+                val loc = myLoc
+                if (loc != null) {
+                    controller.easeTo(loc.lon, loc.lat, 16.0)
+                    controller.rotateTo(-heading.toDouble())
                 } else {
-                    vm.setFollowMode(true)
-                    val loc = myLoc
-                    if (loc != null) {
-                        controller.easeTo(loc.lon, loc.lat, 16.0)
-                        controller.rotateTo(-heading.toDouble())
-                    } else {
-                        vm.locateOnce { fix -> controller.easeTo(fix.lon, fix.lat, 16.0) }
-                    }
+                    vm.locateOnce { fix -> controller.easeTo(fix.lon, fix.lat, 16.0) }
                 }
             },
             onZoomIn = { controller.zoomIn() },
@@ -501,23 +496,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             ) {
                 Text("${stat.first} 条线路 / ${stat.second} 条电缆", color = Color.White, fontSize = 11.sp)
             }
-        }
-
-        // ---------------- 底部状态栏 ----------------
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp).padding(bottom = 8.dp)
-        ) {
-            Text(
-                statusBar.ifBlank { "经度 —，纬度 —" },
-                color = Color(0xCCFFFFFF), fontSize = 10.5.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .background(Color(0xAA10141A), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            )
         }
 
         // ---------------- 绘制工具栏 ----------------
