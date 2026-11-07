@@ -36,11 +36,16 @@ fun RoundIconButton(icon: ImageVector, label: String, active: Boolean = false, o
             Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(if (active) Color(0xE6B71C1C) else Color(0xDD101418))
+                // 主界面统一浅米色，激活时用品牌红
+                .background(if (active) Color(0xFFB71C1C) else Color(0xF2FFFDF8))
                 .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, label, tint = Color.White, modifier = Modifier.size(19.dp))
+            Icon(
+                icon, label,
+                tint = if (active) Color.White else Color(0xFF3B3B3B),
+                modifier = Modifier.size(19.dp)
+            )
         }
     }
 }

@@ -63,27 +63,27 @@ fun SearchBar(
                 onValueChange = onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
-                    Text("点击搜索地点、线路、电缆、收藏点...", fontSize = 12.5.sp, color = Color(0x99FFFFFF), maxLines = 1)
+                    Text("点击搜索地点、线路、电缆、收藏点...", fontSize = 12.5.sp, color = Color(0xFF9A9086), maxLines = 1)
                 },
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFFDDE3EA), modifier = Modifier.size(19.dp)) },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFF5C544A), modifier = Modifier.size(19.dp)) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = {
                             onQueryChange("")
                             onSearch("")
                         }) {
-                            Icon(Icons.Default.Clear, null, tint = Color(0xFFDDE3EA), modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Clear, null, tint = Color(0xFF5C544A), modifier = Modifier.size(18.dp))
                         }
                     }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.5.sp, color = Color.White),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.5.sp, color = Color(0xFF2B2B2B)),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xE6101418),
-                    unfocusedContainerColor = Color(0xE6101418),
-                    focusedBorderColor = Color(0x66FFFFFF),
-                    unfocusedBorderColor = Color(0x44FFFFFF),
+                    focusedContainerColor = Color(0xF5FFFDF8),
+                    unfocusedContainerColor = Color(0xF5FFFDF8),
+                    focusedBorderColor = Color(0x33000000),
+                    unfocusedBorderColor = Color(0x22000000),
                     cursorColor = PowerRedLight
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

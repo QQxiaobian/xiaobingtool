@@ -311,7 +311,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF0E1116))) {
+    Box(Modifier.fillMaxSize().background(Color(0xFFFBF6EE))) {
         MapLibreView(
             controller = controller,
             initialBasemap = basemap,
@@ -491,10 +491,10 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             Spacer(Modifier.height(6.dp))
             Box(
                 Modifier
-                    .background(Color(0xB312161B), RoundedCornerShape(8.dp))
+                    .background(Color(0xE6FFFDF8), RoundedCornerShape(8.dp))
                     .padding(horizontal = 9.dp, vertical = 5.dp)
             ) {
-                Text("${stat.first} 条线路 / ${stat.second} 条电缆", color = Color.White, fontSize = 11.sp)
+                Text("${stat.first} 条线路 / ${stat.second} 条电缆", color = Color(0xFF2B2B2B), fontSize = 11.sp)
             }
         }
 
@@ -681,12 +681,12 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         if (busy != null) {
             Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) {
                 Column(
-                    Modifier.background(Color(0xE6101418), RoundedCornerShape(14.dp)).padding(22.dp),
+                    Modifier.background(Color(0xF5FFFDF8), RoundedCornerShape(14.dp)).padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     CircularProgressIndicator(color = PowerRedLight, modifier = Modifier.size(30.dp))
                     Spacer(Modifier.height(10.dp))
-                    Text(busy!!, color = Color.White, fontSize = 13.sp)
+                    Text(busy!!, color = Color(0xFF2B2B2B), fontSize = 13.sp)
                 }
             }
         }
@@ -696,9 +696,9 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             Box(Modifier.fillMaxSize().padding(bottom = 90.dp), contentAlignment = Alignment.BottomCenter) {
                 Text(
                     navInfo!!,
-                    color = Color.White, fontSize = 12.5.sp,
+                    color = Color(0xFFB71C1C), fontSize = 12.5.sp,
                     modifier = Modifier
-                        .background(Color(0xEEB71C1C), RoundedCornerShape(10.dp))
+                        .background(Color(0xF2FFFDF8), RoundedCornerShape(10.dp))
                         .clickable { navInfo = null }
                         .padding(horizontal = 14.dp, vertical = 9.dp)
                 )
@@ -775,9 +775,9 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             Box(Modifier.fillMaxSize().padding(bottom = 96.dp), contentAlignment = Alignment.BottomCenter) {
                 Text(
                     toastText!!,
-                    color = Color.White, fontSize = 12.5.sp,
+                    color = Color(0xFF2B2B2B), fontSize = 12.5.sp,
                     modifier = Modifier
-                        .background(Color(0xE62B2B2B), RoundedCornerShape(10.dp))
+                        .background(Color(0xF2FFFDF8), RoundedCornerShape(10.dp))
                         .padding(horizontal = 14.dp, vertical = 9.dp)
                 )
             }

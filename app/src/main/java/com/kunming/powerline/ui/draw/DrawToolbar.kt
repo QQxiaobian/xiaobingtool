@@ -68,7 +68,7 @@ fun DrawToolbar(
     Column(
         modifier
             .fillMaxWidth()
-            .background(Color(0xF5101418), RoundedCornerShape(14.dp))
+            .background(Color(0xF5FFFDF8), RoundedCornerShape(14.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         // 标签页
@@ -78,13 +78,13 @@ fun DrawToolbar(
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (active) PowerRed else Color(0x22FFFFFF))
+                        .background(if (active) PowerRed else Color(0xFFEFE7DA))
                         .clickable { onToolChange(t) }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
                         t.label, fontSize = 12.sp,
-                        color = if (active) Color.White else Color(0xCCFFFFFF),
+                        color = if (active) Color.White else Color(0xFF5C544A),
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
                     )
                 }
@@ -94,7 +94,7 @@ fun DrawToolbar(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (measureText.isBlank()) "点击地图添加${tool.label}节点（$vertexCount 点）" else measureText,
-                fontSize = 12.sp, color = Color(0xFF8EE0A8),
+                fontSize = 12.sp, color = Color(0xFF2E7D32),
                 modifier = Modifier.weight(1f), maxLines = 2
             )
         }
@@ -120,8 +120,8 @@ private fun ToolIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
             .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, label, tint = Color(0xFFDDE3EA), modifier = Modifier.size(19.dp))
-        Text(label, fontSize = 9.5.sp, color = Color(0x99FFFFFF))
+        Icon(icon, label, tint = Color(0xFF4A4A4A), modifier = Modifier.size(19.dp))
+        Text(label, fontSize = 9.5.sp, color = Color(0xFF7A6F66))
     }
 }
 
@@ -143,7 +143,7 @@ fun MapToolbar(
 ) {
     Column(
         modifier
-            .background(Color(0xE6101418), RoundedCornerShape(22.dp))
+            .background(Color(0xF0FFFDF8), RoundedCornerShape(22.dp))
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -163,15 +163,20 @@ fun MapToolbar(
 
 @Composable
 private fun ToolButton(symbol: String, label: String, bg: Color, onClick: () -> Unit) {
+    val active = bg != Color.Unspecified
     Column(
         Modifier
             .size(width = 44.dp, height = 42.dp)
             .clip(RoundedCornerShape(12.dp))
+            .background(if (active) bg else Color.Transparent)
             .clickable { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(symbol, fontSize = 16.sp, color = if (bg == Color.Unspecified) Color.White else Color.White)
+        Text(
+            symbol, fontSize = 16.sp,
+            color = if (active) Color.White else Color(0xFF2B2B2B)
+        )
     }
 }
 
@@ -189,8 +194,8 @@ private fun CompassButton(bearing: Double, onClick: () -> Unit) {
             val cx = size.width / 2
             val cy = size.height / 2
             val r = size.minDimension / 2 - 1
-            drawCircle(Color(0x33FFFFFF), radius = r, center = Offset(cx, cy))
-            drawCircle(Color(0x66FFFFFF), radius = r, center = Offset(cx, cy), style = Stroke(1.2f))
+            drawCircle(Color(0xFFEDE4D8), radius = r, center = Offset(cx, cy))
+            drawCircle(Color(0xFFBDB3A6), radius = r, center = Offset(cx, cy), style = Stroke(1.2f))
             // 指针
             val rad = Math.toRadians(bearing - 90.0)
             val tipX = cx + (r * 0.78f * Math.cos(rad)).toFloat()
@@ -207,7 +212,7 @@ private fun CompassButton(bearing: Double, onClick: () -> Unit) {
                 close()
             }
             drawPath(p, Color(0xFFE53935))
-            drawCircle(Color.White, radius = r * 0.10f, center = Offset(cx, cy))
+            drawCircle(Color(0xFF2B2B2B), radius = r * 0.10f, center = Offset(cx, cy))
         }
     }
 }
