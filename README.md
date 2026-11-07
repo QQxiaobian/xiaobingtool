@@ -1,10 +1,12 @@
 # 输电线路智能巡检地图系统（Android）
 
 昆明输电管理所输电线路智能巡检 App。原生安卓（Kotlin + Jetpack Compose + MapLibre Native），
-以卫星影像为底图，叠加架空线路、电缆、杆塔、交叉跨越、视频监控、护线员、危险点等专题图层，
-支持搜索定位、绘制标注、导航、台账校验、线路导入与后台位置共享。
+以卫星影像为底图，叠加架空线路、电缆、杆塔、交叉跨越、视频监控、护线员、危险点等业务图层，
+并支持导入行政区划图等自定义专题图层（KML/KMZ/GeoJSON/SHP），支持搜索定位、绘制标注、导航、
+台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
+- **当前版本**：1.0.16（versionCode 17）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -17,14 +19,17 @@
 | 模块 | 能力 |
 |---|---|
 | 底图 | 天地图 WMTS 10 种组合（云南卫星为默认、卫星+路网、矢量、地形、全国卫星、服务端瓦片版）；切换保持相机位置；服务端失败自动回退在线 |
-| 图层 | 10 个专题图层独立红/灰开关；电压分色（500kV `#D32F2F` 5dp、220kV `#1976D2` 4dp、110kV `#F57C00` 3dp、35kV `#388E3C` 2dp）；左下角图例 + 实时「N 条线路 / M 条电缆」 |
+| 图层 | 10 个业务图层独立红/灰开关；电压分色（500kV `#D32F2F` 5dp、220kV `#1976D2` 4dp、110kV `#F57C00` 3dp、35kV `#388E3C` 2dp）；左下角图例 + 实时「N 条线路 / M 条电缆」 |
+| 专题图层 | 自定义点/线/面图层，支持 KML / KMZ / GeoJSON / SHP 导入（含行政区划图）；图层面板可改名、改备注、调透明度/线宽、控制名称显示、批量操作；要素可定位、查看详情、转线路、改所属图层 |
+| 区域标注 | 面要素名称以质心独立点标注渲染（规避 MapLibre 面要素排版失效）；要素少时强制全显、要素多时自动碰撞避让；名称按缩放分级出现，可设置起始层级；点击区域弹出信息卡显示 KML 备注与扩展属性 |
 | 搜索 | 8 种语法：杆塔（线路名+杆塔号）、地名/POI、经纬度（自动识别度分秒）、`照片` / `起飞点` / `视频` / `护线员` 前缀、杆塔模糊、收藏点、线路名 |
 | 工具栏 | 沿线杆塔漫游播放、地图截图存 `Pictures/输电巡检`、单次定位、放大/缩小、指北针（跟随旋转，点击回正北） |
 | 长按菜单 | 高德/百度导航、罗盘开关、重置正北、测距连线、位置校准 |
 | 绘制 | 线/多边形/圆/矩形/文字；实时球面长度与面积；撤销/删除/暂停/保存；存 Room `custom_overlay`；导出 GeoJSON |
-| 设置 | 房间号位置共享（前台服务 1s 推送 + WebSocket）、标注字号 8–20sp、真北/磁北、地图组、地图数据设置、台账校验、帮助 |
+| 设置 | 房间号位置共享（前台服务 1s 推送 + WebSocket）、标注字号 8–20sp、名称起始缩放级 6–17、真北/磁北、地图组、地图数据设置、台账校验、帮助 |
 | 线路管理 | 模板下载、创建空线路、同塔多回显示优化、Excel 导入（列映射/预览/错误导出）、PMS 内网 UPSERT 增量导入、KML/KMZ/GeoJSON/GPX/SHP 导入、全量删除（输入「删除」二次确认）、统一校验规则、导入批次 5 分钟内撤销 |
-| 文件解析 | 自写 KML/KMZ/GPX/GeoJSON 解析器；SHP（含 DBF 属性表、GBK 解码、Gauss-Krüger/WebMercator 反算） |
+| 图层导入 | 收藏点/起飞点/危险点/交叉跨越/视频监控/护线员/电缆 7 个图层全部支持 KML/KMZ/GeoJSON/SHP 导入与逐条编辑；影像图层支持从相册批量导入并按 EXIF GPS 定位 |
+| 文件解析 | 自写 KML/KMZ/GPX/GeoJSON 解析器；SHP（含 DBF 属性表、GBK 解码、Gauss-Krüger/WebMercator 反算）；KMZ/SHP 支持 zip 打包上传；解析 KML `ExtendedData`/`SimpleData` 扩展属性作为区域名称与备注 |
 | 原生能力 | 后台定位前台服务 + WorkManager 看护复活、开机自启、离线瓦片包（mbtiles / 区域预下载）、相机拍照写 Exif GPS、方位角传感器真北 |
 
 ---
@@ -34,8 +39,8 @@
 | 项目 | 结果 |
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
-| `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，产物 46 MB |
-| `:app:testDebugUnitTest` | ✅ 26 项全部通过 |
+| `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
+| `:app:testDebugUnitTest` | ✅ 89 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1/v2/v3） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -45,6 +50,10 @@
 - `GeoUtilsTest`：Haversine 距离、折线长、球面面积、点到折线距离、WGS84↔GCJ02 往返（误差 < 1 m）、度分秒解析、中国范围判定
 - `ImportValidatorTest`：线路名/电压/坐标/杆塔号重复/空线路等 8 类校验规则
 - `TemplateTest` + `XlsxRoundTripTest`：模板包结构、表头一致性、xlsx 写入后读回精度不丢失、空行行号对齐
+- `KmlParseTest` / `ThematicParseTest`：KML `Placemark`、`MultiGeometry`、`ExtendedData`/`SimpleData` 扩展属性、名称兜底优先级
+- `ShpThematicParseTest`：大端文件头、记录长度、DBF 32 字节字段描述区、点/线/面/MultiPoint 与 Z/M 坐标
+- `ThematicLabelTest` / `ThematicAreaLabelTest` / `ThematicNameTest`：标注文案组装、质心点要素生成、备注仅在单要素图层补位、无名图层兜底
+- `HeadingIconTest`：指北针图标按方位角旋转的角度映射
 
 ---
 
@@ -91,6 +100,8 @@ cp local.properties.template local.properties
 | `PMS_BASE_URL` | PMS 内网服务地址，**必须以 `/` 结尾** | `http://10.0.0.1:8080/` |
 | `WS_LOCATION_URL` | 位置共享 WebSocket 地址 | `wss://server/ws/location` |
 | `TILE_SERVER_URL` | 自建瓦片服务模板 | `http://10.0.0.1:8090/tiles/{z}/{x}/{y}.png` |
+| `ROADNET_TILE_URL` | 路网注记瓦片地址（可选，默认用云南天地图注记） | `https://t{s}.tianditu.gov.cn/cva_w/wmts?...` |
+| `HELP_DOC_URL` | 帮助页跳转地址（可选） | `https://lbs.tianditu.gov.cn/` |
 | `RELEASE_STORE_FILE` | 签名文件相对路径 | `keystore/powerline-release.jks` |
 | `RELEASE_STORE_PASSWORD` | 密钥库口令 | — |
 | `RELEASE_KEY_ALIAS` | 密钥别名 | `powerline` |
@@ -188,30 +199,43 @@ app/src/main/java/com/kunming/powerline/
 ├── MainActivity.kt                 单 Activity 入口 + 权限申请
 ├── PowerLineApp.kt                 @HiltAndroidApp，MapLibre 初始化
 ├── data/
-│   ├── local/                      Room：16 张表 / 9 个 DAO
-│   │   ├── entity/Entities.kt
-│   │   ├── dao/Daos.kt
-│   │   └── AppDatabase.kt
-│   ├── repository/                 LineRepository（含校验/几何重建）、PointRepository、BatchRepository
-│   ├── prefs/SettingsStore.kt      DataStore 偏好
+│   ├── local/                      Room：18 张表 / 10 个 DAO（v3）
+│   │   ├── entity/Entities.kt      业务实体（线路/杆塔/点位/影像等）
+│   │   ├── entity/ThematicEntities.kt  专题图层、专题要素
+│   │   ├── dao/Daos.kt             业务 DAO
+│   │   ├── dao/ThematicDao.kt      专题 DAO（批量透明度/名称开关/移动要素）
+│   │   └── AppDatabase.kt          含 MIGRATION_2_3
+│   ├── repository/                 LineRepository（含校验/几何重建）、PointRepository、BatchRepository、ThematicRepository
+│   ├── prefs/SettingsStore.kt      DataStore 偏好（含名称显示起始缩放级）
 │   ├── location/                   高德定位封装（GCJ02→WGS84）、位置共享 WebSocket
 │   ├── offline/                    mbtiles 导入、区域瓦片预下载
 │   ├── parser/                     Excel / KML / KMZ / GPX / GeoJSON / SHP 解析、模板生成
+│   │   ├── ThematicParser.kt       KML/GeoJSON 专题解析（含 ExtendedData/SimpleData）
+│   │   ├── ShapefileThematicReader.kt  SHP+DBF 二进制解析与坐标系反算
+│   │   └── GeoFileParser.kt        导入入口（含 zip 解包与格式嗅探）
 │   ├── remote/                     PMS Retrofit 接口与 DTO
 │   └── sensor/CompassSensor.kt     方位角 + 磁偏角（真北）
 ├── service/                        位置共享前台服务、WorkManager 看护、开机自启
 ├── di/AppModule.kt                 Hilt 提供 Database / DAO / OkHttp / Retrofit
 ├── ui/
 │   ├── MapScreen.kt                主地图页
-│   ├── MapViewModel.kt             全部状态与业务动作
+│   ├── MapViewModel.kt             全部状态与业务动作（导入/转线路/编辑）
 │   ├── map/                        MapController、LayerRenderer、底图与图标
+│   │   ├── ThematicLabels.kt       专题标注文案组装与兜底规则
+│   │   ├── ThematicInfoDialog.kt   要素信息卡（KML 备注/扩展属性）
+│   │   └── ThematicLineConverter.kt 专题线 → 线路（顶点映射杆塔号）
 │   ├── layer/                      图层枚举、图层面板、电压图例
 │   ├── search/                     搜索栏与帮助弹窗
 │   ├── draw/                       绘制工具栏与状态机
 │   ├── importui/                   创建/导入线路全流程
-│   ├── layermanage/                10 个图层的管理页
+│   ├── layermanage/                各图层管理页
+│   │   ├── LayerImportEdit.kt      通用导入条与编辑弹窗（7 个业务图层复用）
+│   │   ├── ThematicLayerScreen.kt  专题图层管理（名称/透明度/线宽/批量/转线路）
+│   │   └── LineEditScreen.kt       线路编辑
 │   ├── settings/                   设置面板、地图数据设置
+│   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
+├── domain/                         领域模型
 └── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif
 ```
 
@@ -254,6 +278,49 @@ Android 12+ 后台定位需用户选择「始终允许」，未授权时 App 会
 
 错误行可导出为 CSV（UTF-8 BOM，Excel 直接打开不乱码）。
 
+### 7.6 专题图层与名称标注
+
+专题图层是独立的点/线/面数据容器（`thematic_layer` + `thematic_feature`），与业务图层互不影响。
+
+**名称渲染策略**（这是本项目踩坑最多的地方）：
+
+- MapLibre Native 在 `Polygon` 几何上排版文字极不稳定，面要素名称常常整层不显示。
+  因此面名称**不挂在面图层上**，而是在 `LayerRenderer.polygonLabelFeatures()` 中为每个面计算质心，
+  生成一个独立的 `Point` 要素写入 `SRC_AREA_LABEL`，由 `LYR_AREA_LABEL` 单独渲染。
+- 图层要素数 ≤ `DENSE_LABEL_THRESHOLD`（120）时走普通名称层，`textAllowOverlap(true)`，
+  名称**强制全显不参与碰撞剔除**；超过阈值切换到 `LYR_THEMATIC_LABEL_DENSE`，
+  开启碰撞避让，避免满屏重叠。
+- 名称出现层级：默认 11 级，可在设置中调 6–17 级。区域层实际取 `labelZoom - 1`（最低 6 级），
+  杆塔号再多抬 2.5 级；低缩放不渲染任何文字，避免数据量大时掉帧。
+- 名称兜底顺序：要素名 → 图层名 → 图层备注。备注只在**单要素图层**时作为第二行补位，
+  多要素图层不显示备注，否则每个面都挂同一段备注。
+
+**KML 备注**：解析 `Placemark` 下的 `description`，以及 `ExtendedData/Data/value`、
+`SchemaData/SimpleData`。行政区划图的名称通常只存在于扩展属性中（`name`、`NAME`、`名称` 等键），
+若缺失会导致入库名称为空、地图上无标注——**v1.0.15 之前导入的图层需删除后重新导入**。
+
+### 7.7 专题要素转线路
+
+`convertThematicFeatureToLine()` 把专题线/面边界转为正式线路：
+
+- 至少 2 个顶点（`MIN_POINTS`），闭合环自动去掉重复的首尾点；
+- 顶点按顺序映射为 `1..N` 号杆塔，间距与走向保持原始坐标；
+- 线路名取要素名，重名时追加 `(2)`、`(3)` 保证唯一；
+- 支持单条转换与整层批量转换，批量转换前会提示影响条数。
+
+### 7.8 数据库迁移
+
+`AppDatabase` 当前 `version = 3`。`MIGRATION_2_3` 为 `thematic_layer` 增加三个字段：
+
+| 字段 | 类型 | 默认值 | 用途 |
+|---|---|---|---|
+| `labelVisible` | INTEGER | 1 | 是否显示该图层名称 |
+| `fillOpacity` | REAL | 0.22 | 面填充透明度 |
+| `lineWidth` | REAL | 2.2 | 线宽（dp） |
+
+均为 `NOT NULL DEFAULT`，升级时旧库直接补默认值，**不需要清库或重导数据**。
+但 v1.0.15 之前入库的专题要素若名称为空，仍需重新导入才能显示标注（见 7.6）。
+
 ---
 
 ## 8. 常见问题
@@ -275,10 +342,28 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 国产 ROM 需手动允许「自启动」「后台运行」「电池不优化」。App 已申请相关权限并注册 WorkManager 看护，
 但系统级限制仍需用户手动放行。
 
+**Q: 导入了行政区划图，但区域一个名称都不显示？**
+按以下顺序排查：
+
+1. 进入「图层 → 专题图层」，确认该图层的**名称开关**为开启，卡片上会显示「名称 n/m」——
+   `n` 是能取到名称的要素数，`n = 0` 说明名称根本没解析入库；
+2. 缩放是否已达到设置的起始层级（默认 11 级，区域层取 10 级）；
+3. `n = 0` 时点开任意区域查看信息卡，若「备注」也空，通常是 KML 用了 `SchemaData/SimpleData`
+   且字段名不在识别列表内——请升级到 1.0.16 后**删除该图层重新导入**，
+   旧版本写入的名称字段为空，仅升级 App 不会自动补齐。
+
+**Q: 面要素名称在 MapLibre 上不显示，是不是数据问题？**
+不是。MapLibre Native 对 `Polygon` 的文字排版支持不稳定，本项目已改为在面质心生成独立点要素
+（`SRC_AREA_LABEL`）来渲染名称，不依赖面要素自带的 label。
+
 ---
 
 ## 9. 版本
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.0.16 | 2026-11 | 行政区划名称解析修复（`ExtendedData`/`SimpleData`）、点击区域查看 KML 备注与扩展属性、图层导入条改为列表顶部全宽、影像图层支持相册批量导入 |
+| 1.0.15 | 2026-11 | 7 个业务图层开放导入与编辑、新增 SHP 格式、区域名称不显示问题修复、专题线批量转线路、要素支持修改所属图层 |
+| 1.0.14 | 2026-11 | 区域名称/备注可开关显示、批量调整区域透明度、线路上显示线路名称、名称按缩放分级显示以降低卡顿 |
+| 1.0.1 – 1.0.13 | 2026-11 | 过程迭代版本：图层渲染、导入流程、搜索与绘制细节修正，改动并入上述条目 |
 | 1.0.0 | 2026-11 | 首个完整版本：底图/图层/搜索/绘制/导入/位置共享全链路 |
