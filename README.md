@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.1.0（versionCode 20）
+- **当前版本**：1.1.1（versionCode 21）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -26,7 +26,7 @@
 | 工具栏 | 沿线杆塔漫游播放、地图截图存 `Pictures/输电巡检`、单次定位、放大/缩小、指北针（跟随旋转，点击回正北） |
 | 长按菜单 | 高德/百度导航、罗盘开关、重置正北、测距连线、位置校准 |
 | 绘制 | 线/多边形/圆/矩形/文字；实时球面长度与面积；撤销/删除/暂停/保存；存 Room `custom_overlay`；导出 GeoJSON |
-| 设置 | 房间号位置共享（前台服务 1s 推送 + WebSocket）、标注字号 8–20sp、名称起始缩放级 6–17、真北/磁北、地图组、地图数据设置、台账校验、帮助 |
+| 设置 | 房间号位置共享（前台服务 1s 推送 + WebSocket）、**服务器地址运行时可改**（NAS 主地址一键测试并自动填充，无需重新打包）、标注字号 8–20sp、名称起始缩放级 6–17、真北/磁北、地图组、地图数据设置、台账校验、帮助 |
 | 线路管理 | 模板下载、创建空线路、同塔多回显示优化、Excel 导入（列映射/预览/错误导出）、PMS 内网 UPSERT 增量导入、KML/KMZ/GeoJSON/GPX/SHP 导入、全量删除（输入「删除」二次确认）、统一校验规则、导入批次 5 分钟内撤销 |
 | 图层导入 | 收藏点/起飞点/危险点/交叉跨越/视频监控/护线员/电缆 7 个图层全部支持 KML/KMZ/GeoJSON/SHP 导入与逐条编辑；影像图层支持从相册批量导入并按 EXIF GPS 定位 |
 | 文件解析 | 自写 KML/KMZ/GPX/GeoJSON 解析器；SHP（含 DBF 属性表、GBK 解码、Gauss-Krüger/WebMercator 反算）；KMZ/SHP 支持 zip 打包上传；解析 KML `ExtendedData`/`SimpleData` 扩展属性作为区域名称与备注 |
@@ -40,7 +40,7 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 94 项全部通过 |
+| `:app:testDebugUnitTest` | ✅ 99 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1/v2/v3） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -151,9 +151,17 @@ cp local.properties.template local.properties
 
 仓库内 [`nas-server/`](nas-server/README.md) 提供一套可直接部署到群晖 / 威联通 / 绿联 / 极空间的
 Docker Compose 工程，包含瓦片服务（nginx）、PMS 台账 REST 与位置共享 WebSocket，
-接口已按 App 源码实现并通过实测。部署后把 `local.properties` 的
-`PMS_BASE_URL` / `WS_LOCATION_URL` / `TILE_SERVER_URL` 指向 NAS 并重新打包即可，
-无需修改 App 代码。详见 [nas-server/README.md](nas-server/README.md)。
+接口已按 App 源码实现并通过实测。
+
+- **1.1.1 起改地址无需重新打包**：在 App「设置 → 服务器（自建 NAS）」里填主地址
+  （如 `192.168.1.10:8080`），点「测试连接」会自动读取 NAS `/health` 返回的三个推荐地址，
+  保存后立即生效；高级里还可单独覆盖台账 / 位置共享 / 瓦片地址，或一键恢复默认值。
+- 批量分发时也可把 `PMS_BASE_URL` / `WS_LOCATION_URL` / `TILE_SERVER_URL` 写进
+  `local.properties` 编译为默认值，用户设置优先、默认值作兜底。
+- NAS 端只需固定内网 IP、放行 8080（可选 8090）、保证 `/health` 可访问，
+  容器不需要预先知道自己的 IP——推荐地址按请求方的 host 自动生成。
+
+详见 [nas-server/README.md](nas-server/README.md)。
 
 ---
 
@@ -380,6 +388,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.1.1 | 2026-11 | 服务器地址改为运行时可配置（设置页填 NAS 主地址 → 测试连接 → 自动填充三地址）、PMS 请求动态改写、瓦片/WS 地址即时生效并自动重建底图；新增 NAS 自建服务部署工程 `nas-server/`（Docker Compose + 台账 API + 位置共享 + 瓦片服务） |
 | 1.1.0 | 2026-11 | 区域名称 3 级起直接显示（边界线也纳入）、业务点位名称统一收进 12 级起的独立层、主界面按钮/搜索栏/提示条改浅米色、杆塔图标低缩放跳过绘制 |
 | 1.0.18 | 2026-11 | 取消自动跟随与常驻经纬度/精度状态条：打开 App 不再抢镜头，定位按钮改为单次居中，拖动地图不再弹「已退出跟随」 |
 | 1.0.17 | 2026-11 | 无名称的专题区域改用备注首段作标注（行政区划不再空白）、点击区域信息卡标题回退备注、图层面板与电压图例改为浅米色 |
