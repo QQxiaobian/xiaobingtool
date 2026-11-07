@@ -74,6 +74,7 @@ fun SettingsPanel(
     validationIssues: List<ValidationIssue>,
     onOpenHelp: () -> Unit,
     onOpenMapDataSettings: () -> Unit,
+    onOpenServerSettings: () -> Unit,
     onOpenGroupSettings: () -> Unit,
     onBack: () -> Unit,
     sectionResult: SectionLengthResult?,
@@ -196,6 +197,9 @@ fun SettingsPanel(
                     )
                 )
             }
+
+            SectionTitle("服务器（自建 NAS）")
+            SettingRow("地图 / 线路台账 / 位置共享地址，可随时修改", "设置", onOpenServerSettings)
 
             SectionTitle("基础地图数据设置")
             SettingRow("在线地图管理 / 自定义 Style / 导入离线 mbtiles", "›", onOpenMapDataSettings)

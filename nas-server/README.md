@@ -100,9 +100,58 @@ Excel 需要 `线路` 和 `杆塔` 两个 Sheet，列名见文件头注释。字
 
 首次启动会写入 3 条示例线路方便验收，正式导入后把 `.env` 里的 `SEED_DEMO` 改为 `0`。
 
-## 五、App 端配置（关键）
+## 五、App 端配置（v1.1.1 起可在 App 里直接改）
 
-这三个地址是 **编译期 `buildConfigField`**，不是运行时设置——**改完必须重新打包 APK**：
+### 方式 A：现场填写，不用重新打包（推荐）
+
+**设置 → 服务器（自建 NAS）→ 服务器地址**，只填一个主地址：
+
+```
+192.168.1.10:8080
+```
+
+点「**测试连接**」→ App 会请求 `http://192.168.1.10:8080/health`，成功后自动把
+服务端 `urls` 里返回的三个推荐地址填入高级输入框 → 点「**保存**」立即生效。
+
+- 台账接口、瓦片地址改完立即生效，不用重启 App
+- 瓦片地址变化会自动重建底图，镜头位置保持不变
+- 若位置共享正在运行，需停止后重新开启才会连到新地址
+- 高级里可单独覆盖三个地址（例如把瓦片改到 nginx 的 8090）
+- 「恢复默认」回到打包时 `local.properties` 里的地址
+
+### NAS 端要做什么？
+
+**几乎不用改**——App 只是把请求目标换了个地址，服务端代码不需要为每个客户端单独配置。
+只需保证三件事：
+
+1. **NAS 有固定局域网 IP**（路由器 DHCP 保留），手机与 NAS 同网；换 IP 后在 App 里改一下即可。
+2. **8080 端口可达**，且 `GET /health` 能返回 200——App 的「测试连接」就是打这个接口。
+   若用反代，请透传 `X-Forwarded-Prefix`，`/health` 会据此自动带上子路径前缀。
+3. **防火墙放行 8080**；要用独立瓦片服务再放行 8090。
+
+`/health` 返回的 `urls` 是用**请求方实际访问的 host** 生成的（Flask `request.host_url`），
+所以容器里**不需要预先写死 NAS 的 IP**，换了 IP、换了域名、走反代都能自动给出正确地址：
+
+```json
+{
+  "service": "powerline-nas-server",
+  "version": "1.1",
+  "pmsLines": 3,
+  "urls": {
+    "pmsBase": "http://192.168.1.10:8080/",
+    "wsLocation": "ws://192.168.1.10:8080/ws/location",
+    "tileServer": "http://192.168.1.10:8080/tiles/{z}/{x}/{y}.png"
+  }
+}
+```
+
+若希望 App 自动改用 nginx 8090 的高性能瓦片地址，在 `.env` 里设
+`TILE_PUBLIC_URL=http://192.168.1.10:8090`，`/health` 会多返回 `tileServerNginx`，
+App 会优先采用它。留空则 8080 单端口即可，tiles 容器可以不跑。
+
+### 方式 B：编译期写死（批量分发、不希望现场改）
+
+把三行写进 `local.properties` 后 `./gradlew :app:assembleRelease`：
 
 ```properties
 PMS_BASE_URL=http://192.168.1.10:8080/
@@ -110,11 +159,8 @@ WS_LOCATION_URL=ws://192.168.1.10:8080/ws/location
 TILE_SERVER_URL=http://192.168.1.10:8090/tiles/{z}/{x}/{y}.png
 ```
 
-写入 `local.properties` 后执行 `./gradlew :app:assembleRelease`。
 `WS_LOCATION_URL` 不要带 `?room=`，App 会自动追加房间号。
-
-> 若希望一台 NAS 只开一个端口，把 `TILE_SERVER_URL` 也指向 `http://<NAS>:8080/tiles/{z}/{x}/{y}.png`
-> 即可（Flask 内置静态路由），此时可以不跑 tiles 容器。
+编译期值作为**默认值**：用户在设置页改过之后以运行时配置为准，点「恢复默认」才回到这里。
 
 ## 六、验收清单
 
@@ -154,9 +200,14 @@ App 上逐项确认：
 | 台账列表为空 | 看 `/health` 的 `pmsLines`；确认已跑 `import_excel.py`；`SEED_DEMO=0` 且未导入时就是空 |
 | 容器起不来 | `docker compose logs -f pms`；8080/8090 是否被 NAS 上其他服务占用（改 `.env` 端口） |
 
-## 九、可选的下一步
+## 九、App 端实现说明（v1.1.1 已实现运行时配置）
 
-当前地址写死在 `local.properties` + 编译期注入，换 NAS IP 就要重新打包。若需要现场灵活切换，
-可以在 App「设置」里增加「服务器地址」输入框，用 `SettingsStore` 存运行时地址，
-让 `PmsRepository` / `Basemap` / `LocationShareSocket` 优先读运行时值、编译期值作兜底。
-需要的话告诉我，我直接改并出新版本。
+| 位置 | 做法 |
+|---|---|
+| `data/prefs/ServerConfig.kt` | 单例保存三个最终生效地址，DataStore 持久化，暴露 Flow + 同步 getter |
+| `di/ServerUrlInterceptor.kt` | 只挂在 PmsApi 专用 OkHttpClient 上，逐请求替换 scheme/host/port/前缀，Retrofit 无需重建；**不能加全局 client**，否则在线瓦片下载会被一起重定向 |
+| `LocationShareSocket.kt` | 连接时读运行时 WS 地址 |
+| `Basemap.kt` / `MapController.kt` / `MapLibreView.kt` | 瓦片地址作为参数传入 style JSON，`LaunchedEffect` 监听变化自动重建底图并保留相机 |
+| `ui/settings/ServerSettingsScreen.kt` | 主地址一键推导、测试连接、高级覆盖、恢复默认 |
+
+因此换 NAS IP 只需在 App 设置里改一次，历史安装包无需重发。

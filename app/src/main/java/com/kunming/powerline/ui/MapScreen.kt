@@ -121,6 +121,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val photos by vm.photos.collectAsStateWithLifecycle()
     val peers by vm.peers.collectAsStateWithLifecycle()
     val shareConnected by vm.shareConnected.collectAsStateWithLifecycle()
+    val server by vm.serverAddresses.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
@@ -144,6 +145,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showImport by remember { mutableStateOf(false) }
     var managerTarget by remember { mutableStateOf<MapLayer?>(null) }
     var showMapData by remember { mutableStateOf(false) }
+    var showServerSettings by remember { mutableStateOf(false) }
     // 点击专题区域/点位后弹出的信息卡
     var thematicSheet by remember { mutableStateOf<com.kunming.powerline.data.local.entity.ThematicFeatureEntity?>(null) }
 
@@ -171,10 +173,11 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
 
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
-        enabled = showMapData || managerTarget != null || showImport || showSettings ||
+        enabled = showMapData || showServerSettings || managerTarget != null || showImport || showSettings ||
             showLayers || showBasemap || showResults || showTowerSheet || drawMode
     ) {
         when {
+            showServerSettings -> showServerSettings = false
             showMapData -> showMapData = false
             managerTarget != null -> managerTarget = null
             showImport -> showImport = false
@@ -315,6 +318,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         MapLibreView(
             controller = controller,
             initialBasemap = basemap,
+            serverTileBase = server.tileServer,
             onTap = { lat, lon, x, y ->
                 // 手动操作地图 -> 退出跟随
                 if (followMode) vm.setFollowMode(false)
@@ -667,6 +671,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                     try { context.startActivity(i) } catch (_: Throwable) {}
                 },
                 onOpenMapDataSettings = { showSettings = false; showMapData = true },
+                onOpenServerSettings = { showSettings = false; showServerSettings = true },
                 onOpenGroupSettings = { navInfo = "地图组设置：按区域 / 单位分组" },
                 onBack = { showSettings = false },
                 sectionResult = sectionResult,
@@ -736,6 +741,16 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                         showImport = false
                         controller.easeTo(lon, lat, z)
                     }
+                )
+            }
+        }
+
+        // ---------------- 服务器地址设置（运行时可改） ----------------
+        if (showServerSettings) {
+            Box(Modifier.fillMaxSize()) {
+                com.kunming.powerline.ui.settings.ServerSettingsScreen(
+                    vm = vm,
+                    onBack = { showServerSettings = false }
                 )
             }
         }

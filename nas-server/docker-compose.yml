@@ -24,6 +24,8 @@ services:
       API_TOKEN: "${API_TOKEN:-}"
       # 首次启动写入 3 条示例线路便于验收；正式导入后设为 0
       SEED_DEMO: "${SEED_DEMO:-1}"
+      # 可选：让 /health 告诉 App 改用 nginx 8090 的瓦片地址；留空则用 8080 内置瓦片
+      TILE_PUBLIC_URL: "${TILE_PUBLIC_URL:-}"
     volumes:
       - ./data:/data
     healthcheck:

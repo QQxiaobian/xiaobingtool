@@ -151,18 +151,40 @@ def options(_p):
 @app.get("/")
 @app.get("/health")
 def health():
+    """健康检查，同时向 App 返回推荐的三件套地址（App 1.1.1+ 会自动采用）。
+
+    request.host_url 用的是「手机实际访问的地址」，因此 App 填什么 IP / 域名 /
+    反代前缀，这里就返回什么，容器内部不需要预先知道 NAS 的局域网 IP。
+    """
     with db() as c:
         nl = c.execute("SELECT COUNT(*) FROM lines").fetchone()[0]
         nt = c.execute("SELECT COUNT(*) FROM towers").fetchone()[0]
     tiles = sum(1 for _ in TILE_ROOT.rglob("*.png")) if TILE_ROOT.exists() else 0
+
+    prefix = request.headers.get("X-Forwarded-Prefix", "").rstrip("/")
+    root = request.host_url.rstrip("/") + prefix
+    host_part = request.host_url.split("://", 1)[-1].rstrip("/") + prefix
+    ws_scheme = "wss" if request.host_url.startswith("https://") else "ws"
+    urls = {
+        "pmsBase": root + "/",
+        "wsLocation": f"{ws_scheme}://{host_part}/ws/location",
+        "tileServer": root + "/tiles/{z}/{x}/{y}.png",
+    }
+    # 可选：若另起了 nginx 8090 承担瓦片，用 TILE_PUBLIC_URL 告知 App
+    nginx = os.environ.get("TILE_PUBLIC_URL", "").strip()
+    if nginx:
+        urls["tileServerNginx"] = nginx.rstrip("/") + "/tiles/{z}/{x}/{y}.png"
+
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.0",
+        "version": "1.1",
         "pmsLines": nl,
         "pmsTowers": nt,
         "tiles": tiles,
         "tileRoot": str(TILE_ROOT),
         "auth": "on" if API_TOKEN else "off",
+        "urls": urls,
+        "hint": "App 只需填 pmsBase 一个地址；tileServerNginx 存在时可把瓦片改到 8090",
         "endpoints": ["/api/lines", "/api/towers", "/api/units",
                       "/api/import/pms-ledger", "/ws/location", "/tiles/{z}/{x}/{y}.png"],
     })

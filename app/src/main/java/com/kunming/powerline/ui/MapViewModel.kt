@@ -19,6 +19,8 @@ import com.kunming.powerline.data.location.FixLocation
 import com.kunming.powerline.data.location.LocationShareSocket
 import com.kunming.powerline.data.parser.ImportLine
 import com.kunming.powerline.data.parser.ParseResult
+import com.kunming.powerline.data.prefs.ServerAddresses
+import com.kunming.powerline.data.prefs.ServerConfig
 import com.kunming.powerline.data.prefs.SettingsStore
 import com.kunming.powerline.data.repository.BatchRepository
 import com.kunming.powerline.data.repository.LineRepository
@@ -44,7 +46,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 import org.maplibre.geojson.Point
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -75,6 +81,7 @@ class MapViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val amap: AmapLocationClient,
     private val socket: LocationShareSocket,
+    private val serverConfig: ServerConfig,
     val excelParser: com.kunming.powerline.data.parser.ExcelParser,
     val templateGenerator: com.kunming.powerline.data.parser.TemplateGenerator,
     val geoParser: com.kunming.powerline.data.parser.GeoFileParser,
@@ -156,6 +163,75 @@ class MapViewModel @Inject constructor(
 
     val shareConnected: StateFlow<Boolean> = socket.connected
     val peers = socket.peers
+
+    // ---------------- 服务器地址（运行时可改，无需重新打包） ----------------
+    val serverAddresses: StateFlow<ServerAddresses> = serverConfig.state
+
+    fun saveServerAddresses(a: ServerAddresses, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            serverConfig.save(a)
+            onDone("服务器地址已保存，立即生效")
+        }
+    }
+
+    fun resetServerAddresses(onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            serverConfig.reset()
+            onDone("已恢复为打包时的默认地址")
+        }
+    }
+
+    /**
+     * 探测 NAS 的 /health。
+     * 新版 NAS 服务会在响应里返回 urls 推荐配置，App 可直接采用。
+     * 返回：是否成功、提示文本、服务端推荐地址（旧版服务则为 null）。
+     */
+    fun testServer(base: String, onResult: (Boolean, String, ServerAddresses?) -> Unit) {
+        val root = ServerAddresses.normalize(base)
+        if (root.isEmpty()) {
+            onResult(false, "请先填写服务器地址", null)
+            return
+        }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(6, TimeUnit.SECONDS)
+                        .readTimeout(8, TimeUnit.SECONDS)
+                        .build()
+                    val req = Request.Builder().url(root.trimEnd('/') + "/health").build()
+                    client.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) error("HTTP ${resp.code}")
+                        val o = JSONObject(resp.body?.string().orEmpty())
+                        val info = "连接成功 · ${o.optString("service", "未知服务")} " +
+                            "v${o.optString("version", "?")}\n" +
+                            "台账 ${o.optInt("pmsLines")} 条线路 / " +
+                            "${o.optInt("pmsTowers")} 基杆塔 · 瓦片 ${o.optInt("tiles")} 张"
+                        val rec = o.optJSONObject("urls")?.let { u ->
+                            ServerAddresses(
+                                pmsBase = u.optString("pmsBase").ifBlank { root },
+                                wsLocation = u.optString("wsLocation"),
+                                // NAS 配了 nginx 8090 时优先用高性能瓦片地址
+                                tileServer = u.optString("tileServerNginx")
+                                    .ifBlank { u.optString("tileServer") }
+                            )
+                        }
+                        info to rec
+                    }
+                }
+            }
+            result.fold(
+                onSuccess = { (info, rec) -> onResult(true, info, rec) },
+                onFailure = { e ->
+                    onResult(
+                        false,
+                        "连接失败：${e.message ?: "未知错误"}\n请检查 IP / 端口 / 防火墙，手机需与 NAS 在同一网络",
+                        null
+                    )
+                }
+            )
+        }
+    }
 
     init {
         viewModelScope.launch {
