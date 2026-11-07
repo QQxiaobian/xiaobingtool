@@ -20,7 +20,7 @@ data class ImportTower(
 
 data class ImportLine(
     val name: String,
-    val voltageLevel: Int,
+    var voltageLevel: Int,
     val startStation: String? = null,
     val endStation: String? = null,
     val inServiceDate: String? = null,
@@ -51,7 +51,15 @@ data class ParseResult(
  */
 object ImportValidator {
 
-    fun validate(lines: List<ImportLine>): Pair<List<ImportLine>, List<ImportError>> {
+    /**
+     * @param allowDuplicateNumbers 允许同一线路内出现相同编号（不同坐标）。
+     *        GIS 文件（KML/GeoJSON/SHP）里这是正常数据，且用户要求"不修改编号"；
+     *        表格导入仍按严格模式校验，避免台账错误。
+     */
+    fun validate(
+        lines: List<ImportLine>,
+        allowDuplicateNumbers: Boolean = false
+    ): Pair<List<ImportLine>, List<ImportError>> {
         val errors = mutableListOf<ImportError>()
         val validLines = mutableListOf<ImportLine>()
 
@@ -66,6 +74,7 @@ object ImportValidator {
             }
             val validTowers = mutableListOf<ImportTower>()
             val seen = HashMap<String, Int>()
+            val seenCoords = HashMap<String, Int>()
             line.towers.forEach { t ->
                 if (t.towerNumber.isBlank()) {
                     errors.add(ImportError(t.sourceRow, "【${line.name}】杆塔号为空"))
@@ -84,11 +93,20 @@ object ImportValidator {
                     errors.add(ImportError(t.sourceRow, "【${line.name}】${t.towerNumber} 经纬度缺失"))
                     return@forEach
                 }
-                if (seen.containsKey(t.towerNumber)) {
-                    errors.add(ImportError(t.sourceRow, "【${line.name}】杆塔号重复：${t.towerNumber}（第 ${seen[t.towerNumber]} 行已存在）"))
-                    return@forEach   // 重复行不重复入库
+                // 只丢弃"同编号 + 同坐标"的重复行
+                if (!allowDuplicateNumbers) {
+                    if (seen.containsKey(t.towerNumber)) {
+                        errors.add(ImportError(t.sourceRow, "【${line.name}】杆塔号重复：${t.towerNumber}（第 ${seen[t.towerNumber]} 行已存在）"))
+                        return@forEach
+                    }
+                    seen[t.towerNumber] = t.sourceRow
                 }
-                seen[t.towerNumber] = t.sourceRow
+                val key = "${t.towerNumber}@${"%.6f".format(t.lon)},${"%.6f".format(t.lat)}"
+                if (seenCoords.containsKey(key)) {
+                    errors.add(ImportError(t.sourceRow, "【${line.name}】重复要素：${t.towerNumber}（与第 ${seenCoords[key]} 行完全相同，已跳过）"))
+                    return@forEach
+                }
+                seenCoords[key] = t.sourceRow
                 validTowers.add(t)
             }
             // 空线路（创建待补录）允许导入；但若原文有杆塔却全部无效，则视为错误

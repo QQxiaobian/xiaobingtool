@@ -9,6 +9,7 @@ import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.PhotoEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
+import com.kunming.powerline.data.parser.ImportFeature
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,6 +50,64 @@ class PointRepository @Inject constructor(private val db: AppDatabase) {
 
     suspend fun upsertCrossing(c: CrossingEntity) = dao.upsertCrossing(c)
     suspend fun deleteCrossing(id: String) = dao.deleteCrossing(id)
+
+    /**
+     * 从地理文件批量导入点位类图层
+     *
+     * @param kind 目标图层：favorite / takeoff / danger / crossing / camera / guardian
+     * @return 成功导入数量
+     */
+    suspend fun importPoints(kind: String, features: List<ImportFeature>): Int {
+        val pts = features.filter { it.kind == "point" || (it.lon != null && it.lat != null) }
+        if (pts.isEmpty()) return 0
+        var n = 0
+        pts.forEach { f ->
+            val lon = f.lon ?: return@forEach
+            val lat = f.lat ?: return@forEach
+            val name = f.name?.takeIf { it.isNotBlank() }
+                ?: f.properties["name"]?.takeIf { it.isNotBlank() }
+                ?: "未命名 ${n + 1}"
+            val note = f.properties["description"]?.takeIf { it.isNotBlank() }
+            when (kind) {
+                "favorite" -> dao.upsertFavorite(
+                    FavoriteEntity(
+                        id = newId("FV"), name = name, lon = lon, lat = lat,
+                        category = "导入", note = note
+                    )
+                )
+                "takeoff" -> dao.upsertTakeoff(
+                    TakeoffPointEntity(id = newId("TK"), name = name, lon = lon, lat = lat, note = note)
+                )
+                "danger" -> dao.upsertDanger(
+                    DangerPointEntity(
+                        id = newId("DG"), type = name, level = "Ⅲ",
+                        lon = lon, lat = lat, remark = note
+                    )
+                )
+                "crossing" -> dao.upsertCrossing(
+                    CrossingEntity(
+                        id = newId("CR"), crossType = "其他", crossObject = name,
+                        lon = lon, lat = lat, remark = note
+                    )
+                )
+                "camera" -> dao.upsertCamera(
+                    CameraEntity(id = newId("CM"), name = name, lon = lon, lat = lat, remark = note)
+                )
+                "guardian" -> dao.upsertGuardian(
+                    GuardianEntity(
+                        id = newId("GD"), name = name, lastLon = lon, lastLat = lat,
+                        responsibilitySection = note, updatedAt = System.currentTimeMillis()
+                    )
+                )
+                else -> return@forEach
+            }
+            n++
+        }
+        return n
+    }
+
+    private fun newId(prefix: String) =
+        "$prefix-${System.currentTimeMillis()}-${kotlin.random.Random.nextInt(100000)}"
 }
 
 @Singleton

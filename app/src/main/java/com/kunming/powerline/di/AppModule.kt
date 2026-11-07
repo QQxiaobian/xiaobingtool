@@ -11,6 +11,7 @@ import com.kunming.powerline.data.local.dao.MiscDao
 import com.kunming.powerline.data.local.dao.OverlayDao
 import com.kunming.powerline.data.local.dao.PhotoDao
 import com.kunming.powerline.data.local.dao.PointDao
+import com.kunming.powerline.data.local.dao.ThematicDao
 import com.kunming.powerline.data.local.dao.TowerDao
 import com.kunming.powerline.data.local.dao.TransactionDao
 import com.kunming.powerline.data.remote.PmsApi
@@ -40,6 +41,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.NAME)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 
@@ -52,6 +54,7 @@ object AppModule {
     @Provides fun batchDao(db: AppDatabase): BatchDao = db.batchDao()
     @Provides fun miscDao(db: AppDatabase): MiscDao = db.miscDao()
     @Provides fun transactionDao(db: AppDatabase): TransactionDao = db.transactionDao()
+    @Provides fun thematicDao(db: AppDatabase): ThematicDao = db.thematicDao()
 
     @Provides
     @Singleton

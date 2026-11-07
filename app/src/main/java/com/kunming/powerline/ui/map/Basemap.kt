@@ -82,6 +82,17 @@ object TileSourceFactory {
     fun subdomains(): Array<String> = SUBDOMAINS
 
     /**
+     * 展开 {s} 子域名占位符为多 URL 列表。
+     * MapLibre raster source 不自动替换 {s}（Leaflet 语法），需预先展开，
+     * 把多个子域名 URL 放进 tiles 数组由 MapLibre 轮询实现负载均衡。
+     */
+    private fun expandTiles(url: String): List<String> =
+        if (url.contains("{s}")) SUBDOMAINS.map { url.replace("{s}", it) } else listOf(url)
+
+    private fun tilesJson(urls: List<String>): String =
+        urls.joinToString(",") { """"$it"""" }
+
+    /**
      * 生成 MapLibre Style JSON
      * - raster 源 + raster 图层，tileSize 256
      * - 世界背景色避免瓦片未加载时花屏
@@ -91,14 +102,16 @@ object TileSourceFactory {
         sb.append("""{"version":8,"name":"${type.name}","sources":{""")
 
         val primaryUrl = if (type.isServer) serverTileUrl(type) else primaryTileUrl(type)
+        val primaryTiles = tilesJson(expandTiles(primaryUrl))
         sb.append(
-            """"basemap":{"type":"raster","tiles":["$primaryUrl"],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""
+            """"basemap":{"type":"raster","tiles":[$primaryTiles],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""
         )
 
         val overlay = overlayTileUrl(type)
         if (overlay != null) {
+            val overlayTiles = tilesJson(expandTiles(overlay))
             sb.append(
-                ""","roadnet":{"type":"raster","tiles":["$overlay"],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""
+                ""","roadnet":{"type":"raster","tiles":[$overlayTiles],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""
             )
         }
 

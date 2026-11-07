@@ -98,10 +98,14 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val layerState by vm.layerState.collectAsStateWithLifecycle()
     val basemap by vm.basemap.collectAsStateWithLifecycle()
     val textSize by vm.textSize.collectAsStateWithLifecycle()
+    val labelZoom by vm.labelZoom.collectAsStateWithLifecycle()
     val voltageFilter by vm.voltageFilter.collectAsStateWithLifecycle()
     val hits by vm.searchHits.collectAsStateWithLifecycle()
     val target by vm.searchTarget.collectAsStateWithLifecycle()
     val myLoc by vm.myLocation.collectAsStateWithLifecycle()
+    val tracking by vm.tracking.collectAsStateWithLifecycle()
+    val followMode by vm.followMode.collectAsStateWithLifecycle()
+    val heading by vm.heading.collectAsStateWithLifecycle()
     val statusBar by vm.statusBar.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val layerVersion by vm.layerVersion.collectAsStateWithLifecycle()
@@ -113,6 +117,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val dangers by vm.dangers.collectAsStateWithLifecycle()
     val crossings by vm.crossings.collectAsStateWithLifecycle()
     val overlays by vm.overlays.collectAsStateWithLifecycle()
+    val thematicLayers by vm.thematicLayers.collectAsStateWithLifecycle()
+    val thematicFeatures by vm.thematicFeatures.collectAsStateWithLifecycle()
     val photos by vm.photos.collectAsStateWithLifecycle()
     val peers by vm.peers.collectAsStateWithLifecycle()
     val shareConnected by vm.shareConnected.collectAsStateWithLifecycle()
@@ -139,6 +145,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showImport by remember { mutableStateOf(false) }
     var managerTarget by remember { mutableStateOf<MapLayer?>(null) }
     var showMapData by remember { mutableStateOf(false) }
+    // 点击专题区域/点位后弹出的信息卡
+    var thematicSheet by remember { mutableStateOf<com.kunming.powerline.data.local.entity.ThematicFeatureEntity?>(null) }
 
     // 拍照：待写入的照片文件
     var pendingPhoto by remember { mutableStateOf<java.io.File?>(null) }
@@ -181,7 +189,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     }
 
     // 同步数据 -> 地图
-    LaunchedEffect(layerVersion, controller.ready, textSize, voltageFilter, selectedTower?.id) {
+    LaunchedEffect(layerVersion, controller.ready, textSize, labelZoom, voltageFilter, selectedTower?.id) {
         if (controller.ready) {
             LayerRenderer.renderAll(
                 ctrl = controller,
@@ -190,22 +198,87 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 photos = photos, cameras = cameras, guardians = guardians,
                 dangers = dangers, crossings = crossings,
                 overlays = overlays,
+                thematicLayers = thematicLayers,
+                thematicFeatures = thematicFeatures,
                 layerOn = { l -> layerState[l.id] ?: l.defaultOn },
                 voltageFilter = voltageFilter,
                 textSize = textSize,
-                selectedTowerId = selectedTower?.id
+                selectedTowerId = selectedTower?.id,
+                labelZoom = labelZoom
             )
         }
     }
 
     // 真北 / 磁北罗盘跟随：地图方位 = -罗盘方位
-    LaunchedEffect(trueNorth, controller.ready) {
-        if (!trueNorth || !controller.ready) return@LaunchedEffect
+    LaunchedEffect(trueNorth, followMode, controller.ready) {
+        if (!trueNorth || followMode || !controller.ready) return@LaunchedEffect
         vm.compass.azimuthFlow(
             trueNorth = { trueNorth },
             location = { myLoc?.let { it.lon to it.lat } }
         ).collect { az ->
             if (trueNorth) controller.rotateTo(-az.toDouble())
+        }
+    }
+
+    // ---------------- 实时定位 ----------------
+    // 打开软件即请求权限并启动持续定位；有权限则直接开始
+    val requestLocationPermission = com.kunming.powerline.ui.common.rememberLocationPermissionRequest(
+        onGranted = { vm.startTracking() },
+        onDenied = { navInfo = "未授予定位权限，无法显示当前位置" }
+    )
+    LaunchedEffect(Unit) {
+        if (com.kunming.powerline.ui.common.PermissionHelper.hasLocation(context)) {
+            vm.startTracking()
+        } else {
+            requestLocationPermission()
+        }
+    }
+
+    // 位置 / 方向变化 -> 更新蓝点、精度圈与方向箭头
+    LaunchedEffect(myLoc, heading, controller.ready) {
+        val loc = myLoc ?: return@LaunchedEffect
+        if (!controller.ready) return@LaunchedEffect
+        LayerRenderer.renderMyLocation(controller, loc.lon, loc.lat, loc.accuracy, heading)
+    }
+
+    // 跟随模式下，手机转向时地图跟着转（正上方 = 手机朝向）
+    LaunchedEffect(heading, followMode, controller.ready) {
+        if (!followMode || !controller.ready) return@LaunchedEffect
+        val target = -heading.toDouble()
+        if (Math.abs(((target - controller.currentBearing + 540.0) % 360.0) - 180.0) >= 3.0) {
+            controller.rotateTo(target)
+        }
+    }
+
+    // 用户手势拖动/缩放地图 -> 自动退出跟随，避免镜头被"抢"回去
+    LaunchedEffect(controller) {
+        controller.onUserGesture = {
+            if (vm.followMode.value) {
+                vm.setFollowMode(false)
+                navInfo = "已退出跟随"
+            }
+        }
+    }
+
+    // 首次定位成功后自动居中；跟随模式下持续跟随位置与朝向
+    var autoCentered by remember { mutableStateOf(false) }
+    LaunchedEffect(myLoc, followMode, controller.ready) {
+        val loc = myLoc ?: return@LaunchedEffect
+        if (!controller.ready) return@LaunchedEffect
+        when {
+            !autoCentered -> {
+                autoCentered = true
+                controller.easeTo(loc.lon, loc.lat, 16.0)
+                // 默认导航视角：镜头正上方 = 手机朝向
+                vm.setFollowMode(true)
+            }
+            followMode -> {
+                // 跟随：地图中心 = 当前位置，正上方 = 手机朝向
+                // 用 moveCamera 而非动画，避免每 2 秒一次的定位回调造成画面抖动；
+                // 缩放交给用户（这里不改 zoom，避免用户缩小后被强制拉回）
+                controller.moveTo(loc.lon, loc.lat, null, animate = false)
+                controller.rotateTo(-heading.toDouble())
+            }
         }
     }
 
@@ -244,6 +317,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             controller = controller,
             initialBasemap = basemap,
             onTap = { lat, lon, x, y ->
+                // 手动操作地图 -> 退出跟随
+                if (followMode) vm.setFollowMode(false)
                 if (drawMode) {
                     // 检查是否点中杆塔
                     val feats = controller.queryFeatures(x, y, arrayOf(LayerIds.LYR_TOWER))
@@ -261,10 +336,18 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                         x, y,
                         arrayOf(LayerIds.LYR_TOWER, LayerIds.LYR_CAMERA, LayerIds.LYR_FAVORITE,
                             LayerIds.LYR_TAKEOFF, LayerIds.LYR_DANGER, LayerIds.LYR_GUARDIAN,
-                            LayerIds.LYR_LINE, LayerIds.LYR_CABLE)
+                            LayerIds.LYR_LINE, LayerIds.LYR_CABLE,
+                            // 专题图层：点 / 线 / 面都可点，用来查看名称与 KML 备注
+                            LayerIds.LYR_THEMATIC_POINT, LayerIds.LYR_THEMATIC_LINE,
+                            LayerIds.LYR_THEMATIC_FILL)
                     )
                     if (feats.isNotEmpty()) {
-                        val f = feats.first()
+                        // 专题面可能铺满整屏，优先响应杆塔、点位等其他要素
+                        val thematicIds = thematicFeatures.mapTo(HashSet()) { it.id }
+                        val f = feats.firstOrNull { feat ->
+                            val id = feat.getStringProperty("fid")
+                            id == null || id !in thematicIds
+                        } ?: feats.first()
                         val fid = f.getStringProperty("fid")
                         when {
                             fid != null && towers.any { it.id == fid } -> {
@@ -291,11 +374,16 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                                 val g = guardians.first { it.id == fid }
                                 navInfo = "护线员：${g.name}\n责任段：${g.responsibilitySection ?: "—"}\n电话：${g.phone ?: "—"}"
                             }
+                            fid != null && thematicFeatures.any { it.id == fid } -> {
+                                // 区域 / 点位 / 线：弹信息卡，展示名称与 KML 备注
+                                thematicSheet = thematicFeatures.first { it.id == fid }
+                            }
                         }
                     }
                 }
             },
             onLongPress = { lat, lon, _, _ ->
+                if (followMode) vm.setFollowMode(false)
                 if (!drawMode) {
                     longPressTarget = lon to lat
                     showLongMenu = true
@@ -374,12 +462,19 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 }
             },
             onLocate = {
-                vm.locateOnce { fix ->
-                    controller.easeTo(fix.lon, fix.lat, 17.0)
-                    controller.setFeatures(
-                        LayerIds.SRC_SEARCH,
-                        listOf(Feature.fromGeometry(Point.fromLngLat(fix.lon, fix.lat)))
-                    )
+                // 定位按钮 = 跟随开关：开启后地图随位置移动、正上方对准手机朝向
+                if (followMode) {
+                    vm.setFollowMode(false)
+                    navInfo = "已退出跟随"
+                } else {
+                    vm.setFollowMode(true)
+                    val loc = myLoc
+                    if (loc != null) {
+                        controller.easeTo(loc.lon, loc.lat, 16.0)
+                        controller.rotateTo(-heading.toDouble())
+                    } else {
+                        vm.locateOnce { fix -> controller.easeTo(fix.lon, fix.lat, 16.0) }
+                    }
                 }
             },
             onZoomIn = { controller.zoomIn() },
@@ -387,6 +482,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             onCompass = {
                 controller.resetNorth()
             },
+            following = followMode,
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)
         )
 
@@ -580,6 +676,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 onStopShare = { vm.stopSharing(); sharing = false },
                 textSize = textSize,
                 onTextSizeChange = { vm.setTextSize(it) },
+                labelZoom = labelZoom,
+                onLabelZoomChange = { vm.setLabelZoom(it) },
                 trueNorth = trueNorth,
                 onTrueNorthChange = { v: Boolean -> trueNorth = v; TrueNorthController.enabled = v },
                 onValidateLedger = {
@@ -629,6 +727,23 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             }
         }
 
+        // ---------------- 专题要素信息卡（点击区域查看名称与 KML 备注）----------------
+        thematicSheet?.let { f ->
+            com.kunming.powerline.ui.map.ThematicInfoDialog(
+                feature = f,
+                layer = thematicLayers.firstOrNull { it.id == f.layerId },
+                onDismiss = { thematicSheet = null },
+                onFocus = {
+                    f.lon?.let { lon ->
+                        f.lat?.let { lat -> controller.easeTo(lon, lat, 15.0) }
+                    }
+                },
+                onConvertToLine = if (f.kind == "line") {
+                    { vm.convertThematicFeatureToLine(f.id, 110) }
+                } else null
+            )
+        }
+
         if (showHelp) SearchHelpDialog { showHelp = false }
 
         // ---------------- 创建/导入线路 ----------------
@@ -637,7 +752,12 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 ImportFlow(
                     vm = vm,
                     onExit = { showImport = false },
-                    onToast = { toastText = it }
+                    onToast = { toastText = it },
+                    onFocus = { lon, lat, z ->
+                        // 关闭导入流程回到地图并定位
+                        showImport = false
+                        controller.easeTo(lon, lat, z)
+                    }
                 )
             }
         }

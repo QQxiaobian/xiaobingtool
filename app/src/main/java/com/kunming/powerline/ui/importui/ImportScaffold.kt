@@ -50,7 +50,14 @@ import com.kunming.powerline.data.parser.ColumnMapping
 import com.kunming.powerline.data.parser.ImportError
 import com.kunming.powerline.data.parser.ParseResult
 import com.kunming.powerline.data.parser.SheetPreview
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.kunming.powerline.ui.theme.HintGray
+import com.kunming.powerline.ui.theme.LightPanelTheme
+import com.kunming.powerline.ui.theme.PanelBg
+import com.kunming.powerline.ui.theme.PanelCard
+import com.kunming.powerline.ui.theme.PanelLine
+import com.kunming.powerline.ui.theme.PanelText
+import com.kunming.powerline.ui.theme.PanelTextSub
 import com.kunming.powerline.ui.theme.PowerRed
 
 /**
@@ -64,32 +71,34 @@ fun ImportScaffold(
     onBack: () -> Unit,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xFFFBF6EE))
-            .statusBarsPadding()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+    LightPanelTheme {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(PanelBg)
+                .statusBarsPadding()
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, "返回", tint = Color(0xFF333333))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, "返回", tint = PanelText)
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(title, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, color = PanelText)
+                }
+                Spacer(Modifier.width(44.dp))
             }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text(title, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2B2B2B))
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle, fontSize = 12.sp, color = PanelTextSub,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)
+                )
             }
-            Spacer(Modifier.width(44.dp))
+            Divider(color = Color(0x14000000), thickness = 0.8.dp)
+            content()
         }
-        if (!subtitle.isNullOrBlank()) {
-            Text(
-                subtitle, fontSize = 12.sp, color = Color(0xFF8A8078),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)
-            )
-        }
-        Divider(color = Color(0x14000000), thickness = 0.8.dp)
-        content()
     }
 }
 
@@ -98,18 +107,26 @@ fun ImportScaffold(
 fun ImportMenuRow(
     title: String,
     subtitle: String,
+    highlight: Boolean = false,
     onClick: () -> Unit
 ) {
     Column {
         Row(
             Modifier
                 .fillMaxWidth()
+                .let {
+                    if (highlight) it.background(Color(0x14B71C1C)) else it
+                }
                 .clickable { onClick() }
                 .padding(horizontal = 20.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 14.5.sp, color = Color(0xFF2B2B2B), fontWeight = FontWeight.Medium)
+                Text(
+                    title, fontSize = 14.5.sp,
+                    color = if (highlight) Color(0xFFB71C1C) else Color(0xFF2B2B2B),
+                    fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium
+                )
                 if (subtitle.isNotBlank()) {
                     Text(subtitle, fontSize = 11.5.sp, color = Color(0xFF8A8078), modifier = Modifier.padding(top = 2.dp))
                 }
@@ -126,12 +143,14 @@ fun ImportHomeScreen(onBack: () -> Unit, onPick: (String) -> Unit) {
     ImportScaffold(title = "创建或导入线路", onBack = onBack) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Spacer(Modifier.height(6.dp))
+            ImportMenuRow("线路列表 / 管理编辑", "查看已导入线路，编辑线路信息与杆塔", highlight = true) { onPick("lines") }
+            ImportMenuRow("专题图层（点位 / 区域范围）", "导入管理巡视点、区域、通道等点/线/面图层") { onPick("thematic") }
             ImportMenuRow("查看导入模板", "下载标准 Excel 模板并查看字段填写说明") { onPick("template") }
             ImportMenuRow("创建线路", "创建空线路，稍后在其中添加数据") { onPick("create") }
             ImportMenuRow("杆塔显示优化", "优化同塔多回线路杆塔的显示效果") { onPick("towerDisplay") }
             ImportMenuRow("从表格文件导入", "所选表格格式需与导入模板一致（.xlsx / .xls / .csv）") { onPick("excel") }
             ImportMenuRow("从输电管理所设备台帐导入", "从输电管理所输电线路设备台帐导入线路信息") { onPick("pms") }
-            ImportMenuRow("从地理信息文件导入（KML 等多格式）", "支持 KML / KMZ / GeoJSON / GPX / Shapefile") { onPick("geo") }
+            ImportMenuRow("从地理信息文件导入（KML 等多格式）", "可导入为线路，也可导入为专题图层（点/线/面）") { onPick("geo") }
             ImportMenuRow("删除全部线路", "清空线路与关联杆塔数据（需二次确认）") { onPick("delete") }
             ImportMenuRow("导入记录与撤销", "查看最近导入批次，5 分钟内可撤销") { onPick("batches") }
         }
@@ -294,7 +313,19 @@ fun LabeledField(
         singleLine = true,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+        keyboardOptions = if (number) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = PanelText,
+            unfocusedTextColor = PanelText,
+            focusedContainerColor = PanelCard,
+            unfocusedContainerColor = PanelCard,
+            cursorColor = PowerRed,
+            focusedBorderColor = PowerRed,
+            unfocusedBorderColor = PanelLine,
+            focusedLabelColor = PowerRed,
+            unfocusedLabelColor = PanelTextSub
+        )
     )
 }
 

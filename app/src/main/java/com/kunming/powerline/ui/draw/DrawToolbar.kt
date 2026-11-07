@@ -135,6 +135,7 @@ fun MapToolbar(
     onPlayToggle: () -> Unit,
     onCamera: () -> Unit,
     onLocate: () -> Unit,
+    following: Boolean = false,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onCompass: () -> Unit,
@@ -148,7 +149,12 @@ fun MapToolbar(
     ) {
         ToolButton(if (playing) "⏸" else "▶", if (playing) "暂停漫游" else "线路漫游", PowerRed) { onPlayToggle() }
         ToolButton("📷", "截图", Color.Unspecified, onCamera)
-        ToolButton("🎯", "定位", Color.Unspecified, onLocate)
+        ToolButton(
+            if (following) "🧭" else "🎯",
+            if (following) "跟随中" else "定位",
+            if (following) PowerRed else Color.Unspecified,
+            onLocate
+        )
         ToolButton("➕", "放大", Color.Unspecified, onZoomIn)
         ToolButton("➖", "缩小", Color.Unspecified, onZoomOut)
         CompassButton(bearing, onCompass)

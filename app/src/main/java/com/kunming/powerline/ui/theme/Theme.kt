@@ -47,6 +47,44 @@ private val LightColors = lightColorScheme(
     onSurface = Color(0xFF1C1B1B)
 )
 
+/**
+ * 浅色面板配色（管理页 / 导入页 / 设置页统一使用）
+ *
+ * 这些页面是浅米色底，必须使用一套浅色 Material 配色，
+ * 否则 OutlinedTextField / AlertDialog 等组件会继承全局深色主题的
+ * 浅色文字，出现「白字白底看不清」。
+ */
+val PanelBg = Color(0xFFFBF6EE)        // 面板底色
+val PanelCard = Color(0xFFFFFDF8)      // 卡片 / 输入框底色
+val PanelLine = Color(0xFFE8DFD2)      // 分割线 / 边框
+val PanelText = Color(0xFF2B2B2B)      // 主文字
+val PanelTextSub = Color(0xFF7A6F66)   // 次要文字
+val PanelTextHint = Color(0xFFA2968A)  // 提示文字
+
+private val LightPanelColors = lightColorScheme(
+    primary = PowerRed,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFE2E0),
+    onPrimaryContainer = Color(0xFF5F0000),
+    secondary = Color(0xFFEF6C00),
+    onSecondary = Color.White,
+    background = PanelBg,
+    onBackground = PanelText,
+    surface = PanelCard,
+    onSurface = PanelText,
+    surfaceVariant = Color(0xFFF3ECE1),
+    onSurfaceVariant = PanelTextSub,
+    outline = Color(0xFFCDBFB0),
+    outlineVariant = PanelLine,
+    error = Color(0xFFC62828),
+    onError = Color.White
+)
+
+/** 浅色面板作用域：包在浅色底页面外层，让 Material 组件用浅色配色 */
+@Composable
+fun LightPanelTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = LightPanelColors, typography = AppTypography, content = content)
+}
 private val AppTypography = Typography(
     titleLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold),
     titleMedium = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold),

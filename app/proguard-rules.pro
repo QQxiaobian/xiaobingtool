@@ -17,6 +17,11 @@
 -keep class com.loc.** { *; }
 -keep interface com.amap.api.** { *; }
 
+# MapLibre HTTP 模块（瓦片请求必经路径）
+-keep class org.maplibre.android.module.http.** { *; }
+# 浏览器 UA 拦截器（OkHttpClient 动态注入）
+-keep class com.kunming.powerline.BrowserUserAgentInterceptor { *; }
+
 # 数据模型（Moshi / 序列化 / Room）
 -keep class com.kunming.powerline.data.local.entity.** { *; }
 -keep class com.kunming.powerline.data.remote.model.** { *; }

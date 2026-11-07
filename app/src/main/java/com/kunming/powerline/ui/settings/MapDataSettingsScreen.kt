@@ -47,6 +47,11 @@ import com.kunming.powerline.data.offline.OfflineTileStore
 import com.kunming.powerline.data.offline.TileDownloader
 import com.kunming.powerline.ui.map.BasemapType
 import com.kunming.powerline.ui.map.TileSourceFactory
+import com.kunming.powerline.ui.theme.LightPanelTheme
+import com.kunming.powerline.ui.theme.PanelCard
+import com.kunming.powerline.ui.theme.PanelLine
+import com.kunming.powerline.ui.theme.PanelText
+import com.kunming.powerline.ui.theme.PanelTextSub
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.util.FileSaver
 import kotlinx.coroutines.launch
@@ -114,6 +119,7 @@ fun MapDataSettingsScreen(
         }
     }
 
+    LightPanelTheme {
     Column(Modifier.fillMaxSize().background(Color(0xFFFBF6EE)).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回", tint = Color(0xFF333333)) }
@@ -177,7 +183,8 @@ fun MapDataSettingsScreen(
             )
         }
     }
-}
+    }
+    }
 
 private fun buildRegion(
     name: String, minLon: String, minLat: String, maxLon: String, maxLat: String, minZ: String, maxZ: String
@@ -330,7 +337,17 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit) {
         value = value, onValueChange = onChange, label = { Text(label, fontSize = 11.sp) },
         singleLine = true,
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.5.sp),
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PowerRed, unfocusedBorderColor = Color(0x33000000), focusedLabelColor = PowerRed),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = PanelText,
+            unfocusedTextColor = PanelText,
+            focusedContainerColor = PanelCard,
+            unfocusedContainerColor = PanelCard,
+            cursorColor = PowerRed,
+            focusedBorderColor = PowerRed,
+            unfocusedBorderColor = PanelLine,
+            focusedLabelColor = PowerRed,
+            unfocusedLabelColor = PanelTextSub
+        ),
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
     )
 }

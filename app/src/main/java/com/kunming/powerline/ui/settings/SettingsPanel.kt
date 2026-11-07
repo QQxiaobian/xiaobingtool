@@ -49,6 +49,7 @@ import com.kunming.powerline.data.repository.ValidationIssue
 import com.kunming.powerline.data.repository.SectionLengthResult
 import com.kunming.powerline.ui.theme.CreamBackground
 import com.kunming.powerline.ui.theme.HintGray
+import com.kunming.powerline.ui.theme.LightPanelTheme
 import com.kunming.powerline.ui.theme.PowerRed
 
 /**
@@ -65,6 +66,8 @@ fun SettingsPanel(
     onStopShare: () -> Unit,
     textSize: Float,
     onTextSizeChange: (Float) -> Unit,
+    labelZoom: Float,
+    onLabelZoomChange: (Float) -> Unit,
     trueNorth: Boolean,
     onTrueNorthChange: (Boolean) -> Unit,
     onValidateLedger: () -> Unit,
@@ -77,6 +80,7 @@ fun SettingsPanel(
     onCalcSection: (String, String?, String?) -> Unit,
     onExportOverlays: () -> Unit
 ) {
+        LightPanelTheme {
     Column(
         Modifier
             .fillMaxWidth()
@@ -151,6 +155,28 @@ fun SettingsPanel(
                 )
             )
 
+            Divider(color = Color(0x14000000), thickness = 0.7.dp, modifier = Modifier.padding(vertical = 6.dp))
+            Text(
+                "名称显示缩放级别：${"%.0f".format(labelZoom)} 级",
+                fontSize = 12.5.sp, color = Color(0xFF444444)
+            )
+            Slider(
+                value = labelZoom,
+                onValueChange = { onLabelZoomChange(it) },
+                valueRange = 8f..16f,
+                steps = 7,
+                colors = SliderDefaults.colors(
+                    thumbColor = PowerRed,
+                    activeTrackColor = PowerRed
+                )
+            )
+            Text(
+                "地图缩小到该级别以下时，线路名、区域名、杆塔号都不再绘制，" +
+                    "只保留线 / 面 / 点位轮廓，可显著减少数据量大时的卡顿。" +
+                    "杆塔号会在该级别基础上再推迟 2.5 级显示。",
+                fontSize = 11.sp, color = HintGray, lineHeight = 16.sp
+            )
+
             SectionTitle("传感器")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -205,6 +231,7 @@ fun SettingsPanel(
             Spacer(Modifier.height(28.dp))
         }
     }
+        }
 }
 
 @Composable

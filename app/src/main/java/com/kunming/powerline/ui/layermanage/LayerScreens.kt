@@ -1,6 +1,7 @@
 package com.kunming.powerline.ui.layermanage
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,11 +23,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kunming.powerline.data.local.entity.FavoriteEntity
+import com.kunming.powerline.data.local.entity.TakeoffPointEntity
+import com.kunming.powerline.data.local.entity.DangerPointEntity
+import com.kunming.powerline.data.local.entity.CrossingEntity
+import com.kunming.powerline.data.local.entity.CameraEntity
+import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.ui.MapViewModel
+import com.kunming.powerline.ui.theme.PanelText
+import com.kunming.powerline.ui.theme.PanelTextSub
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.util.GeoUtils
 import java.text.SimpleDateFormat
@@ -90,8 +100,13 @@ fun CableManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) ->
     var level by remember { mutableStateOf("110") }
     var lon by remember { mutableStateOf("") }
     var lat by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<com.kunming.powerline.data.local.entity.CableEntity?>(null) }
 
     ManageScaffold("输电电缆图层", "共 ${cables.size} 段电缆", onBack) {
+        GeoImportBar(
+            vm, setOf("line", "polygon"),
+            hint = "支持 KML / KMZ / GeoJSON / GPX / SHP，取其中的线 / 面作为电缆路径"
+        ) { fs -> onToast(vm.importLinesToCable(fs, 110)) }
         if (adding) {
             Box(Modifier.padding(12.dp)) {
                 AddSheet("新增电缆段", name.isNotBlank() && lon.toDoubleOrNull() != null && lat.toDoubleOrNull() != null, { adding = false }, {
@@ -121,10 +136,23 @@ fun CableManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) ->
                             val p = firstPointOf(c.geometryGeojson)
                             if (p != null) onFocus(p.first, p.second, 15.0) else onToast("该电缆无坐标")
                         },
+                        onEdit = { editing = c },
                         onDelete = { vm.deleteCable(c.id); onToast("已删除电缆「${c.name}」") }
                     )
                 }
             }
+        editing?.let { c ->
+            EntityEditDialog(
+                "编辑电缆", c.name, firstPointOf(c.geometryGeojson)?.first,
+                firstPointOf(c.geometryGeojson)?.second, c.remark, noteLabel = "备注",
+                onDismiss = { editing = null }
+            ) { n, _, _, note ->
+                // 电缆只改名称与备注，几何路径保持不变
+                vm.saveCable(c.copy(name = n, remark = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -151,7 +179,9 @@ private fun firstPointOf(geojson: String): Pair<Double, Double>? {
 fun FavoriteManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -> Unit, onFocus: (Double, Double, Double) -> Unit) {
     val favs = vm.favorites.value
     var name by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<FavoriteEntity?>(null) }
     ManageScaffold("收藏点图层", "共 ${favs.size} 个收藏点（按当前定位添加）", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("favorite", fs)) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { ManageField("收藏点名称", name) { name = it } }
             Spacer(Modifier.width(8.dp))
@@ -172,10 +202,22 @@ fun FavoriteManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
                         subtitle = String.format("%.5f, %.5f   %s", f.lon, f.lat, f.note ?: f.category),
                         trailing = "定位 ›",
                         onClick = { onFocus(f.lon, f.lat, 17.0) },
+                        onEdit = { editing = f },
                         onDelete = { vm.deleteFavorite(f.id); onToast("已删除「${f.name}」") }
                     )
                 }
             }
+        editing?.let { f ->
+            EntityEditDialog(
+                "编辑收藏点", f.name, f.lon, f.lat, f.note,
+                noteLabel = "备注",
+                onDismiss = { editing = null }
+            ) { n, lo, la, note ->
+                vm.saveFavorite(f.copy(name = n, lon = lo, lat = la, note = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -187,7 +229,9 @@ fun TakeoffManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) 
     val pts = vm.takeoffs.value
     var name by remember { mutableStateOf("") }
     var alt by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<TakeoffPointEntity?>(null) }
     ManageScaffold("无人机起飞点图层", "共 ${pts.size} 个起飞点", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("takeoff", fs)) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { ManageField("起飞点名称", name) { name = it } }
             Spacer(Modifier.width(6.dp))
@@ -210,10 +254,18 @@ fun TakeoffManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) 
                         subtitle = String.format("%.5f, %.5f  海拔 %s", p.lon, p.lat, p.altitude?.let { "%.0fm".format(it) } ?: "—"),
                         trailing = "定位 ›",
                         onClick = { onFocus(p.lon, p.lat, 17.0) },
+                        onEdit = { editing = p },
                         onDelete = { vm.deleteTakeoff(p.id); onToast("已删除起飞点「${p.name}」") }
                     )
                 }
             }
+        editing?.let { p ->
+            EntityEditDialog("编辑起飞点", p.name, p.lon, p.lat, p.note, onDismiss = { editing = null }) { n, lo, la, note ->
+                vm.saveTakeoff(p.copy(name = n, lon = lo, lat = la, note = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -224,7 +276,33 @@ fun TakeoffManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) 
 fun PhotoManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -> Unit, onFocus: (Double, Double, Double) -> Unit) {
     val photos = vm.photos.value
     var viewer by remember { mutableStateOf<String?>(null) }
+    val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> if (uris.isNotEmpty()) vm.importPhotosFromUris(uris) }
     ManageScaffold("影像图层", "共 ${photos.size} 张现场照片", onBack) {
+        androidx.compose.foundation.layout.Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                .background(com.kunming.powerline.ui.theme.PanelCard)
+                .border(
+                    0.8.dp, com.kunming.powerline.ui.theme.PanelLine,
+                    androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                )
+                .clickable { photoPicker.launch(arrayOf("image/*")) }
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("从相册导入照片", fontSize = 13.5.sp, color = PanelText, fontWeight = FontWeight.Medium)
+                Text(
+                    "读取照片 EXIF 的 GPS 与拍摄时间，无 GPS 的照片只入库不上图",
+                    fontSize = 10.5.sp, color = PanelTextSub
+                )
+            }
+            Text("选择照片", fontSize = 12.5.sp, color = PowerRed, fontWeight = FontWeight.Medium)
+        }
         if (photos.isEmpty()) {
             EmptyHint("暂无现场照片\n在杆塔详情页点击「拍照」后会自动写入 EXIF 并显示在地图上")
         } else {
@@ -259,8 +337,10 @@ fun CrossingManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
     var lon by remember { mutableStateOf("") }
     var lat by remember { mutableStateOf("") }
     var dist by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<CrossingEntity?>(null) }
 
     ManageScaffold("交叉跨越图层", "共 ${list.size} 处交叉（跨越距离规范值 ≥ 6m）", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("crossing", fs)) }
         if (adding) {
             Box(Modifier.padding(12.dp)) {
                 AddSheet("新增交叉跨越", name.isNotBlank() && lon.toDoubleOrNull() != null && lat.toDoubleOrNull() != null, { adding = false }, {
@@ -291,10 +371,21 @@ fun CrossingManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
                         leadingColor = if (warn) Color(0xFFD32F2F) else Color(0xFF388E3C),
                         trailing = "定位 ›",
                         onClick = { if (c.lon != null && c.lat != null) onFocus(c.lon, c.lat, 16.0) else onToast("该记录无坐标") },
+                        onEdit = { editing = c },
                         onDelete = { vm.deleteCrossing(c.id); onToast("已删除") }
                     )
                 }
             }
+        editing?.let { c ->
+            EntityEditDialog(
+                "编辑交叉跨越", c.crossObject ?: c.crossType, c.lon, c.lat, c.remark,
+                nameLabel = "交叉对象", onDismiss = { editing = null }
+            ) { n, lo, la, note ->
+                vm.saveCrossing(c.copy(crossObject = n, lon = lo, lat = la, remark = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -304,7 +395,10 @@ fun CrossingManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
 @Composable
 fun CameraManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -> Unit) {
     val cams = vm.cameras.value
+    var editing by remember { mutableStateOf<CameraEntity?>(null) }
+    var editUrl by remember { mutableStateOf("") }
     ManageScaffold("视频监控图层", "共 ${cams.size} 路设备", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("camera", fs)) }
         if (cams.isEmpty()) EmptyHint("暂无视频监控点\n可从 PMS 台账同步或在台账页添加") else
             LazyColumn(Modifier.weight(1f)) {
                 items(cams, key = { it.id }) { c ->
@@ -313,10 +407,21 @@ fun CameraManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -
                         subtitle = "RTSP：${c.rtspUrl.ifBlank { "未配置" }}",
                         trailing = "播放 ›",
                         onClick = { onToast(if (c.rtspUrl.isBlank()) "该监控未配置 RTSP 地址" else "正在打开播放器：${c.name}") },
+                        onEdit = { editing = c; editUrl = c.rtspUrl },
                         onDelete = { vm.deleteCamera(c.id); onToast("已删除监控") }
                     )
                 }
             }
+        editing?.let { c ->
+            EntityEditDialog(
+                "编辑视频监控", c.name, c.lon, c.lat, c.remark,
+                onDismiss = { editing = null }
+            ) { n, lo, la, note ->
+                vm.saveCamera(c.copy(name = n, lon = lo, lat = la, remark = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -326,7 +431,9 @@ fun CameraManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -
 @Composable
 fun GuardianManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -> Unit, onFocus: (Double, Double, Double) -> Unit) {
     val list = vm.guardians.value
+    var editing by remember { mutableStateOf<GuardianEntity?>(null) }
     ManageScaffold("护线员图层", "共 ${list.size} 位护线员", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("guardian", fs)) }
         if (list.isEmpty()) EmptyHint("暂无护线员数据\n可从 PMS 台账同步") else
             LazyColumn(Modifier.weight(1f)) {
                 items(list, key = { it.id }) { g ->
@@ -335,10 +442,23 @@ fun GuardianManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
                         subtitle = "责任段：${g.responsibilitySection ?: "—"}   电话：${g.phone ?: "—"}",
                         trailing = "定位 ›",
                         onClick = { if (g.lastLon != null && g.lastLat != null) onFocus(g.lastLon, g.lastLat, 15.0) else onToast("该护线员暂无上报位置") },
+                        onEdit = { editing = g },
                         onDelete = { vm.deleteGuardian(g.id); onToast("已删除护线员「${g.name}」") }
                     )
                 }
             }
+        editing?.let { g ->
+            EntityEditDialog(
+                "编辑护线员", g.name, g.lastLon, g.lastLat, g.responsibilitySection,
+                noteLabel = "责任段", onDismiss = { editing = null }
+            ) { n, lo, la, note ->
+                vm.saveGuardian(
+                    g.copy(name = n, lastLon = lo, lastLat = la, responsibilitySection = note)
+                )
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 
@@ -354,8 +474,10 @@ fun DangerManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -
     var lon by remember { mutableStateOf("") }
     var lat by remember { mutableStateOf("") }
     var measure by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<DangerPointEntity?>(null) }
 
     ManageScaffold("危险点图层", "共 ${list.size} 处危险点", onBack) {
+        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("danger", fs)) }
         if (adding) {
             Box(Modifier.padding(12.dp)) {
                 AddSheet("新增危险点", type.isNotBlank() && lon.toDoubleOrNull() != null && lat.toDoubleOrNull() != null, { adding = false }, {
@@ -388,10 +510,21 @@ fun DangerManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -
                         leadingColor = c,
                         trailing = "定位 ›",
                         onClick = { onFocus(d.lon, d.lat, 16.0) },
+                        onEdit = { editing = d },
                         onDelete = { vm.deleteDanger(d.id); onToast("已删除") }
                     )
                 }
             }
+        editing?.let { d ->
+            EntityEditDialog(
+                "编辑危险点", d.type, d.lon, d.lat, d.measure,
+                nameLabel = "类型", noteLabel = "防控措施", onDismiss = { editing = null }
+            ) { n, lo, la, note ->
+                vm.saveDanger(d.copy(type = n, lon = lo, lat = la, measure = note))
+                editing = null
+                onToast("已保存「$n」")
+            }
+        }
     }
 }
 

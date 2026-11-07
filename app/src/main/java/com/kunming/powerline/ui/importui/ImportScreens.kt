@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,10 +39,13 @@ import com.kunming.powerline.data.local.entity.ImportBatchEntity
 import com.kunming.powerline.data.parser.GeoFileParser
 import com.kunming.powerline.data.parser.ParseResult
 import com.kunming.powerline.data.parser.TemplateColumns
+import com.kunming.powerline.data.parser.ThematicParseResult
 import com.kunming.powerline.data.parser.TemplateGenerator
 import com.kunming.powerline.data.remote.PmsRepository
 import com.kunming.powerline.data.remote.model.PmsLineDto
 import com.kunming.powerline.ui.theme.HintGray
+import com.kunming.powerline.ui.theme.LightPanelTheme
+import com.kunming.powerline.ui.theme.PanelBg
 import com.kunming.powerline.ui.theme.PowerRed
 import kotlinx.coroutines.launch
 
@@ -85,9 +89,9 @@ fun TemplateScreen(
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0x1FBF360C))
+                                .background(Color(0x1FB71C1C))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) { Text("必填", fontSize = 10.sp, color = Color(0xFFBF360C)) }
+                        ) { Text("必填", fontSize = 10.sp, color = Color(0xFFB71C1C)) }
                     } else {
                         Text("选填", fontSize = 10.sp, color = HintGray)
                     }
@@ -122,33 +126,69 @@ fun TemplateScreen(
 fun GeoImportScreen(
     parser: GeoFileParser,
     onBack: () -> Unit,
-    onImported: (ParseResult, String) -> Unit
+    onImported: (ParseResult, String) -> Unit,
+    onImportedThematic: (ThematicParseResult, String, String) -> Unit = { _, _, _ -> },
+    startThematic: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
+    var thematicMode by remember { mutableStateOf(startThematic) }
     var result by remember { mutableStateOf<ParseResult?>(null) }
+    var thematicResult by remember { mutableStateOf<ThematicParseResult?>(null) }
     var loading by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf<Float?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var fileCount by remember { mutableStateOf(0) }
+    var fileName by remember { mutableStateOf("") }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) {
+    fun reset() {
+        result = null
+        thematicResult = null
+        message = null
+        fileCount = 0
+    }
+
+    // 多选文件启动器（批量导入）
+    val multiPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            reset()
+            fileCount = uris.size
             loading = true
             progress = 0.05f
             scope.launch {
-                val r = parser.parse(uri) { pct -> progress = pct }
-                loading = false
-                progress = null
-                r.onSuccess {
-                    result = it
-                    message = if (it.isEmpty) "未解析到有效要素，请检查文件内容" else null
-                }.onFailure { message = "解析失败：${it.message}" }
+                if (thematicMode) {
+                    val r = if (uris.size == 1) {
+                        parser.parseThematic(uris.first())
+                    } else {
+                        parser.parseThematicMultiple(uris) { pct -> progress = pct }
+                    }
+                    loading = false
+                    progress = null
+                    r.onSuccess {
+                        thematicResult = it
+                        fileName = it.layers.firstOrNull()?.name ?: ""
+                        message = if (it.isEmpty) "未解析到有效要素，请检查文件内容" else null
+                    }.onFailure { message = "解析失败：${it.message}" }
+                } else {
+                    val r = if (uris.size == 1) {
+                        parser.parse(uris.first()) { pct -> progress = pct }
+                    } else {
+                        parser.parseMultiple(uris) { pct -> progress = pct }
+                    }
+                    loading = false
+                    progress = null
+                    r.onSuccess {
+                        result = it
+                        message = if (it.isEmpty) "未解析到有效要素，请检查文件内容" else null
+                    }.onFailure { message = "解析失败：${it.message}" }
+                }
             }
         }
     }
 
     ImportScaffold(
-        title = "从地理信息文件导入",
-        subtitle = "支持 KML / KMZ / GeoJSON / GPX / Shapefile（zip）",
+        title = if (thematicMode) "导入专题图层" else "从地理信息文件导入",
+        subtitle = if (thematicMode) "支持 KML / KMZ / GeoJSON / GPX / SHP（点、线、面）"
+        else "支持 KML / KMZ / GeoJSON / GPX / Shapefile（.zip 打包或单个 .shp）",
         onBack = onBack
     ) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -157,27 +197,82 @@ fun GeoImportScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
+                // 导入类型切换
+                Row(Modifier.fillMaxWidth()) {
+                    ModeChip("导入为线路", !thematicMode, Modifier.weight(1f)) {
+                        if (thematicMode) { thematicMode = false; reset() }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    ModeChip("导入为专题图层", thematicMode, Modifier.weight(1f)) {
+                        if (!thematicMode) { thematicMode = true; reset() }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (thematicMode)
+                        "点、线、面要素原样保留，一个文件（或其中的 Folder）生成一个图层，可在「专题图层」中管理。"
+                    else
+                        "把线要素当作输电线路、点要素当作杆塔导入，可在「线路列表」中管理。",
+                    fontSize = 11.5.sp, color = Color(0xFF7A6F66), lineHeight = 18.sp
+                )
+
+                Spacer(Modifier.height(12.dp))
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .background(Color(0xFFF1EDE4), RoundedCornerShape(12.dp))
-                        .clickable { picker.launch(arrayOf("*/*")) }
+                        .clickable { multiPicker.launch(arrayOf("*/*")) }
                         .padding(vertical = 30.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("🌐", fontSize = 32.sp)
-                    Text("点击选择地理信息文件", fontSize = 14.sp, color = Color(0xFF5D4037), fontWeight = FontWeight.Medium)
-                    Text(".kml / .kmz / .geojson / .gpx / .shp(zip)", fontSize = 11.sp, color = Color(0xFF8A8078))
+                    Text(if (thematicMode) "🗺️" else "🌐", fontSize = 32.sp)
+                    Text("点击选择地理信息文件（支持多选）", fontSize = 14.sp, color = Color(0xFF5D4037), fontWeight = FontWeight.Medium)
+                    Text(
+                        if (thematicMode) ".kml / .kmz / .geojson / .gpx" else ".kml / .kmz / .geojson / .gpx / .shp(zip)",
+                        fontSize = 11.sp, color = Color(0xFF8A8078)
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    "· KML：LineString→线路，Point→杆塔；Placemark 的 name/description 映射名称与备注\n" +
-                        "· KMZ 自动解压读取内部 .kml\n" +
-                        "· GeoJSON：按 properties.voltage / name / tower_number 映射\n" +
-                        "· Shapefile：需将 .shp .dbf .shx .prj 打成一个 zip；自动做 Web Mercator / 高斯投影转换\n" +
-                        "· 大文件在后台分片解析并显示进度",
-                    fontSize = 11.5.sp, color = Color(0xFF7A6F66), lineHeight = 19.sp
-                )
+
+                if (thematicMode) {
+                    Text(
+                        "· 一个 Folder = 一个图层，图层名取 Folder 名；无 Folder 时取 Document 名，再退回文件名\n" +
+                            "· 要素名（Placemark name）原样保留，作为点位名称\n" +
+                            "· 支持点、线、面，以及 MultiGeometry 混合要素\n" +
+                            "· KMZ 自动解压读取内部 .kml；支持批量导入多个文件",
+                        fontSize = 11.5.sp, color = Color(0xFF7A6F66), lineHeight = 19.sp
+                    )
+                } else {
+                    Text(
+                        "· 线路名取文件内名称：Folder → Document → Placemark，均无才用文件名\n" +
+                            "· 杆塔编号原样保留（0012 / N35 / 12号塔），不做重排\n" +
+                            "· LineString → 线路，Point → 杆塔；同一 Folder 下的点自动按沿线顺序排列\n" +
+                            "· KMZ 自动解压读取内部 .kml；支持批量导入",
+                        fontSize = 11.5.sp, color = Color(0xFF7A6F66), lineHeight = 19.sp
+                    )
+                }
+
+                if (fileCount > 1) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("已选择 $fileCount 个文件", fontSize = 11.sp, color = PowerRed, fontWeight = FontWeight.Medium)
+                }
+
+                thematicResult?.let { res ->
+                    Spacer(Modifier.height(14.dp))
+                    ThematicSummary(res)
+                    if (res.errors.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("问题（${res.errors.size}）", fontSize = 12.sp, color = PowerRed, fontWeight = FontWeight.Bold)
+                        ErrorList(res.errors)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    PrimaryButton(
+                        "确认入库（${res.layers.size} 个图层 / ${res.featureCount} 个要素）",
+                        enabled = !res.isEmpty
+                    ) {
+                        onImportedThematic(res, "geo", fileName)
+                    }
+                }
 
                 result?.let { res ->
                     Spacer(Modifier.height(14.dp))
@@ -201,6 +296,69 @@ fun GeoImportScreen(
             if (loading) LoadingOverlay("正在解析地理信息文件…", progress)
         }
     }
+}
+
+/** 导入类型切换按钮 */
+@Composable
+private fun ModeChip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (selected) PowerRed else Color(0xFFEFE7DC))
+            .clickable { onClick() }
+            .padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            fontSize = 12.5.sp,
+            color = if (selected) Color.White else Color(0xFF5D4037),
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
+        )
+    }
+}
+
+/** 专题图层解析结果摘要 */
+@Composable
+private fun ThematicSummary(res: ThematicParseResult) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF1EDE4), RoundedCornerShape(10.dp))
+            .padding(12.dp)
+    ) {
+        Text(
+            "解析完成（${res.format.uppercase()}）",
+            fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32)
+        )
+        Text(
+            "图层 ${res.layers.size} 个 · 要素 ${res.featureCount} 个 · 问题 ${res.errors.size} 条",
+            fontSize = 12.sp, color = Color(0xFF444444), modifier = Modifier.padding(top = 3.dp)
+        )
+        res.layers.take(6).forEach { l ->
+            Text(
+                "· ${l.name}（${l.features.size} 个，${kindName(l.geometryType)}）",
+                fontSize = 11.sp, color = Color(0xFF5D4037), modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        if (res.layers.size > 6) {
+            Text("… 共 ${res.layers.size} 个图层", fontSize = 10.5.sp, color = Color(0xFF8A8078))
+        }
+        if (res.warnings.isNotEmpty()) {
+            Text(
+                res.warnings.take(3).joinToString("\n"),
+                fontSize = 10.5.sp, color = Color(0xFF8D6E00), modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+private fun kindName(kind: String): String = when (kind) {
+    "point" -> "点"
+    "line" -> "线"
+    "polygon" -> "面"
+    "mixed" -> "点线面混合"
+    else -> kind
 }
 
 /**
@@ -381,9 +539,10 @@ fun DeleteAllScreen(
     }
 
     if (showDialog) {
+        LightPanelTheme {
         AlertDialog(
             onDismissRequest = { showDialog = false },
-            containerColor = Color(0xFFFBF6EE),
+            containerColor = PanelBg,
             shape = RoundedCornerShape(18.dp),
             title = {
                 Text(
@@ -425,6 +584,7 @@ fun DeleteAllScreen(
                 )
             }
         )
+        }
     }
 }
 

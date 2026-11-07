@@ -22,12 +22,19 @@ android {
     namespace = "com.kunming.powerline"
     compileSdk = 34
 
+    // ABI 定向：通过 -Pabi=arm64-v8a 构建单架构包，缺省打全部架构
+    // （不用 splits：R8 在多 APK 并行时存在 ConcurrentModificationException 缺陷）
+    val abiFilter: String = (findProperty("abi") as String?) ?: ""
     defaultConfig {
         applicationId = "com.kunming.powerline"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 17
+        versionName = "1.0.16"
+
+        if (abiFilter.isNotBlank()) {
+            ndk { abiFilters.clear(); abiFilters += abiFilter }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -48,7 +55,11 @@ android {
         // 帮助文档
         buildConfigField("String", "HELP_DOC_URL", "\"${prop("HELP_DOC_URL", "https://lbs.tianditu.gov.cn/")}\"")
 
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64") }
+        ndk {
+            if (abiFilter.isBlank()) {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            }
+        }
     }
 
     signingConfigs {
@@ -59,6 +70,13 @@ android {
                 storePassword = prop("RELEASE_STORE_PASSWORD")
                 keyAlias = prop("RELEASE_KEY_ALIAS")
                 keyPassword = prop("RELEASE_KEY_PASSWORD")
+                // 同时启用 v1(JAR) + v2 + v3 签名：
+                // minSdk=26 覆盖 Android 8.0/8.1，这两个版本只认 v1 签名，
+                // 仅 v2 会导致「应用未安装 / 解析包错误」。
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = false
             }
         }
     }
@@ -70,7 +88,9 @@ android {
             buildConfigField("boolean", "DEBUG_MODE", "true")
         }
         release {
-            isMinifyEnabled = true
+            // v1.0.6: 关闭 R8 混淆 —— Hilt/Room/MapLibre 反射路径被混淆导致 release 闪退
+            //（debug 正常、release 闪退的根因），体积换稳定性，后续再渐进收紧
+            isMinifyEnabled = false
             // 资源压缩与 R8 同时开启会在低内存环境触发 OOM，这里改为仅代码压缩
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

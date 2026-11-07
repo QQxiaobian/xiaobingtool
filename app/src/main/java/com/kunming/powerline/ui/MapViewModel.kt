@@ -6,6 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.kunming.powerline.data.local.AppDatabase
 import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.ImportBatchEntity
+import com.kunming.powerline.data.local.entity.CableEntity
+import com.kunming.powerline.data.local.entity.CameraEntity
+import com.kunming.powerline.data.local.entity.CrossingEntity
+import com.kunming.powerline.data.local.entity.DangerPointEntity
+import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
 import com.kunming.powerline.data.local.entity.TowerEntity
@@ -27,6 +32,7 @@ import com.kunming.powerline.util.VoltagePalette
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -64,6 +70,7 @@ class MapViewModel @Inject constructor(
     private val pointRepo: PointRepository,
     private val batchRepo: BatchRepository,
     private val overlayRepo: com.kunming.powerline.data.repository.OverlayRepository,
+    private val thematicRepo: com.kunming.powerline.data.repository.ThematicRepository,
     private val photoRepo: com.kunming.powerline.data.repository.PhotoRepository,
     private val settings: SettingsStore,
     private val amap: AmapLocationClient,
@@ -94,6 +101,8 @@ class MapViewModel @Inject constructor(
     val overlays = overlayRepo.overlays.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val photos = photoRepo.photos.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val batches = batchRepo.batches.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val thematicLayers = thematicRepo.layers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val thematicFeatures = thematicRepo.features.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ---------------- UI 状态 ----------------
     private val _layerState = MutableStateFlow<Map<String, Boolean>>(
@@ -106,6 +115,10 @@ class MapViewModel @Inject constructor(
 
     private val _textSize = MutableStateFlow(11f)
     val textSize: StateFlow<Float> = _textSize.asStateFlow()
+
+    /** 名称（线路名 / 区域名 / 杆塔号）开始显示的缩放级别，低于该级别不渲染文字以免卡顿 */
+    private val _labelZoom = MutableStateFlow(11f)
+    val labelZoom: StateFlow<Float> = _labelZoom.asStateFlow()
 
     private val _voltageFilter = MutableStateFlow(setOf(500, 220, 110, 35))
     val voltageFilter: StateFlow<Set<Int>> = _voltageFilter.asStateFlow()
@@ -154,6 +167,9 @@ class MapViewModel @Inject constructor(
             settings.textSize.collect { _textSize.value = it }
         }
         viewModelScope.launch {
+            settings.labelZoom.collect { _labelZoom.value = it }
+        }
+        viewModelScope.launch {
             settings.layerState.collect { raw ->
                 if (raw.isNotBlank()) {
                     val map = _layerState.value.toMutableMap()
@@ -190,7 +206,13 @@ class MapViewModel @Inject constructor(
         }
         // 定位数据
         viewModelScope.launch {
-            amap.locations.collect { _myLocation.value = it }
+            amap.locations.collect {
+                _myLocation.value = it
+                // 罗盘不可用/未出数时，用 GPS 行进方向兜底（静止时不动）
+                if (!_compassActive && it.speed > 0.6f) {
+                    _heading.value = ((it.bearing % 360f) + 360f) % 360f
+                }
+            }
         }
         viewModelScope.launch {
             amap.errors.collect { _messages.emit(it) }
@@ -222,6 +244,14 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { settings.setTextSize(sp) }
     }
 
+    /** 名称显示的缩放阈值（6~17），到该级别才绘制线路名/区域名/杆塔号 */
+    fun setLabelZoom(z: Float) {
+        val v = z.coerceIn(6f, 17f)
+        _labelZoom.value = v
+        viewModelScope.launch { settings.setLabelZoom(v) }
+        _layerVersion.value = System.currentTimeMillis()
+    }
+
     fun toggleVoltage(level: Int) {
         val cur = _voltageFilter.value.toMutableSet()
         if (cur.contains(level)) cur.remove(level) else cur.add(level)
@@ -249,6 +279,82 @@ class MapViewModel @Inject constructor(
     // ------------------------------------------------------------------
     // 定位
     // ------------------------------------------------------------------
+    /** 是否开启持续定位（实时位置点） */
+    private val _tracking = MutableStateFlow(false)
+    val tracking: StateFlow<Boolean> = _tracking.asStateFlow()
+
+    /** 是否跟随（地图随位置移动 / 朝设备方向旋转） */
+    private val _followMode = MutableStateFlow(false)
+    val followMode: StateFlow<Boolean> = _followMode.asStateFlow()
+
+    /** 设备朝向（罗盘，度，0=北）；罗盘不可用时回退为 GPS 行进方向 */
+    private val _heading = MutableStateFlow(0f)
+    val heading: StateFlow<Float> = _heading.asStateFlow()
+
+    private var headingJob: Job? = null
+
+    /** 罗盘是否已产出有效方位（用于 GPS 方向兜底判断） */
+    private var _compassActive = false
+
+    /**
+     * 启动持续定位：打开软件即调用，intervalMs 默认 2s 足够画实时位置。
+     * 已在运行时不会重复启动。
+     */
+    fun startTracking(intervalMs: Long = 2000L) {
+        if (amap.isRunning()) {
+            _tracking.value = true
+            return
+        }
+        val ok = amap.start(intervalMs = intervalMs, highAccuracy = true, once = false)
+        _tracking.value = ok
+        if (!ok) {
+            viewModelScope.launch { _messages.emit("定位启动失败，请检查定位权限与高德 Key") }
+            return
+        }
+        startHeading()
+    }
+
+    fun stopTracking() {
+        amap.stop()
+        _tracking.value = false
+        _followMode.value = false
+        headingJob?.cancel()
+        headingJob = null
+    }
+
+    fun setFollowMode(on: Boolean) {
+        _followMode.value = on
+        if (on && !_tracking.value) startTracking()
+    }
+
+    fun toggleFollowMode() = setFollowMode(!_followMode.value)
+
+    /** 订阅罗盘方位角作为设备朝向（比 GPS bearing 更实时，静止时也有效） */
+    private fun startHeading() {
+        headingJob?.cancel()
+        headingJob = viewModelScope.launch {
+            var last = Float.NaN
+            compass.azimuthFlow(
+                trueNorth = { false },
+                location = { _myLocation.value?.let { it.lon to it.lat } }
+            ).collect { az ->
+                val loc = _myLocation.value
+                // GPS 行进方向优先（走路/开车时更准），静止时用罗盘
+                val target = if (loc != null && loc.speed > 1.2f) {
+                    ((loc.bearing % 360f) + 360f) % 360f
+                } else {
+                    ((az % 360f) + 360f) % 360f
+                }
+                // 节流：方位变化 < 3° 不推送，避免高频重组与地图抖动
+                _compassActive = true
+                if (last.isNaN() || kotlin.math.abs(((target - last + 540f) % 360f) - 180f) >= 3f) {
+                    _heading.value = target
+                    last = target
+                }
+            }
+        }
+    }
+
     fun locateOnce(onFix: (FixLocation) -> Unit = {}) {
         viewModelScope.launch {
             _busy.value = "正在定位…"
@@ -603,6 +709,68 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    // ------------------------------------------------------------------
+    // 各图层的编辑（保存）与文件导入
+    // ------------------------------------------------------------------
+    fun saveFavorite(f: FavoriteEntity) = edit { db.pointDao().upsertFavorite(f); "收藏点「${f.name}」已保存" }
+    fun saveTakeoff(t: TakeoffPointEntity) = edit { db.pointDao().upsertTakeoff(t); "起飞点「${t.name}」已保存" }
+    fun saveDanger(d: DangerPointEntity) = edit { db.pointDao().upsertDanger(d); "危险点「${d.type}」已保存" }
+    fun saveCrossing(c: CrossingEntity) = edit { db.pointDao().upsertCrossing(c); "交叉跨越「${c.crossObject}」已保存" }
+    fun saveCamera(c: CameraEntity) = edit { db.pointDao().upsertCamera(c); "视频监控「${c.name}」已保存" }
+    fun saveGuardian(g: GuardianEntity) = edit { db.pointDao().upsertGuardian(g); "护线员「${g.name}」已保存" }
+    fun saveCable(c: CableEntity) = edit { db.cableDao().upsert(c); "电缆「${c.name}」已保存" }
+    fun saveLine(l: LineEntity) = edit { db.lineDao().upsert(l); "线路「${l.name}」已保存" }
+
+    private fun edit(block: suspend () -> String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { block() }
+                .onSuccess {
+                    _layerVersion.value = System.currentTimeMillis()
+                    _messages.emit(it)
+                }
+                .onFailure { _messages.emit("保存失败：${it.message}") }
+        }
+    }
+
+    /**
+     * 把解析出来的点要素导入某个点位图层
+     * @param target favorite / takeoff / danger / crossing / camera / guardian
+     */
+    fun importPointsTo(target: String, features: List<com.kunming.powerline.data.parser.ImportFeature>): String {
+        return try {
+            val n = kotlinx.coroutines.runBlocking { pointRepo.importPoints(target, features) }
+            _layerVersion.value = System.currentTimeMillis()
+            if (n == 0) "没有可导入的点要素（该图层只接收点数据）" else "已导入 $n 个点要素"
+        } catch (t: Throwable) {
+            "导入失败：${t.message}"
+        }
+    }
+
+    /** 线要素 → 电缆图层 */
+    fun importLinesToCable(features: List<com.kunming.powerline.data.parser.ImportFeature>, voltage: Int): String {
+        return try {
+            val lines = features.filter { it.kind == "line" || it.kind == "polygon" }
+            if (lines.isEmpty()) return "没有可导入的线要素"
+            kotlinx.coroutines.runBlocking {
+                lines.forEachIndexed { i, f ->
+                    db.cableDao().upsert(
+                        CableEntity(
+                            id = LineRepository.newId("CB"),
+                            name = f.name?.takeIf { it.isNotBlank() } ?: "电缆 ${i + 1}",
+                            voltageLevel = voltage,
+                            geometryGeojson = f.geometryJson,
+                            remark = f.properties["description"]
+                        )
+                    )
+                }
+            }
+            _layerVersion.value = System.currentTimeMillis()
+            "已导入 ${lines.size} 段电缆"
+        } catch (t: Throwable) {
+            "导入失败：${t.message}"
+        }
+    }
+
     fun deletePhoto(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             db.photoDao().deleteById(id)
@@ -618,6 +786,60 @@ class MapViewModel @Inject constructor(
     }
 
     /** 写入照片记录 */
+    /**
+     * 从相册 / 文件批量导入现场照片
+     *
+     * 复制到应用私有目录（content:// 重启后会失效），并读 EXIF 的 GPS 与拍摄时间，
+     * 没有 GPS 的照片仍保留记录，只是不会出现在地图上。
+     */
+    fun importPhotosFromUris(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            var ok = 0
+            var noGps = 0
+            var fail = 0
+            val dir = java.io.File(context.filesDir, "photos").apply { mkdirs() }
+            uris.forEachIndexed { i, uri ->
+                runCatching {
+                    val dst = java.io.File(dir, "imp_${System.currentTimeMillis()}_$i.jpg")
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: error("无法读取文件")
+                    input.use { src -> dst.outputStream().use { out -> src.copyTo(out) } }
+                    val exif = android.media.ExifInterface(dst.absolutePath)
+                    val ll = FloatArray(2)
+                    val hasGps = exif.getLatLong(ll)
+                    val taken = exif.getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL)
+                        ?.let { raw ->
+                        runCatching {
+                            java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US)
+                                .parse(raw)?.time
+                        }.getOrNull()
+                    } ?: System.currentTimeMillis()
+                    db.photoDao().upsert(
+                        com.kunming.powerline.data.local.entity.PhotoEntity(
+                            id = LineRepository.newId("PH"),
+                            filePath = dst.absolutePath,
+                            keywords = "导入照片",
+                            takenAt = taken,
+                            lon = if (hasGps) ll[1].toDouble() else null,
+                            lat = if (hasGps) ll[0].toDouble() else null
+                        )
+                    )
+                    ok++
+                    if (!hasGps) noGps++
+                }.onFailure { fail++ }
+            }
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(
+                buildString {
+                    append("已导入 $ok 张照片")
+                    if (noGps > 0) append("（$noGps 张无 GPS 信息，不会显示在地图上）")
+                    if (fail > 0) append("，$fail 张失败")
+                }
+            )
+        }
+    }
+
     fun addPhotoRecord(file: java.io.File, towerId: String?, lon: Double?, lat: Double?, onDone: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val tower = towerId?.let { id -> towers.value.firstOrNull { it.id == id } }
@@ -737,6 +959,220 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    // ------------------------------------------------------------------
+    // 专题图层（点 / 线 / 面）
+    // ------------------------------------------------------------------
+    fun importThematicSync(result: com.kunming.powerline.data.parser.ThematicParseResult, fileName: String): String {
+        return try {
+            val (layers, features) = kotlinx.coroutines.runBlocking {
+                thematicRepo.save(result, fileName.ifBlank { null })
+            }
+            _layerVersion.value = System.currentTimeMillis()
+            "已导入专题图层：$layers 个图层 / $features 个要素"
+        } catch (t: Throwable) {
+            "导入失败：${t.message}"
+        }
+    }
+
+    fun setThematicVisible(id: String, visible: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setVisible(id, visible)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    fun renameThematicLayer(id: String, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.rename(id, name.trim())
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("图层已重命名为「${name.trim()}」")
+        }
+    }
+
+    /** 改名 + 备注（管理页「编辑」用） */
+    fun updateThematicLayer(id: String, name: String, remark: String?) {
+        if (name.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.rename(id, name.trim())
+            thematicRepo.setRemark(id, remark)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已保存「${name.trim()}」")
+        }
+    }
+
+    /** 单层：是否在地图上显示要素名称 / 备注 */
+    fun setThematicLabelVisible(id: String, visible: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setLabelVisible(id, visible)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 单层：面填充透明度 0..0.9 */
+    fun setThematicFillOpacity(id: String, opacity: Float) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setFillOpacity(id, opacity)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 单层：线宽 */
+    fun setThematicLineWidth(id: String, width: Float) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setLineWidth(id, width)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 批量：全部面图层透明度 */
+    fun setAllThematicFillOpacity(opacity: Float) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setAllFillOpacity(opacity)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已把全部区域透明度设为 ${(opacity.coerceIn(0f, 0.9f) * 100).toInt()}%")
+        }
+    }
+
+    /** 批量：全部图层名称开关 */
+    fun setAllThematicLabelVisible(visible: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.setAllLabelVisible(visible)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(if (visible) "已显示全部图层名称" else "已隐藏全部图层名称")
+        }
+    }
+
+    /** 把专题要素移动到另一个图层 */
+    fun moveThematicFeature(featureId: String, targetLayerId: String, targetName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = thematicRepo.moveFeature(featureId, targetLayerId)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(if (ok) "已移动到「$targetName」" else "移动失败：目标图层不存在")
+        }
+    }
+
+    /**
+     * 专题线要素 → 正式线路（单条）
+     *
+     * 线要素的每个顶点作为一基"虚拟杆塔"，编号 1..N；线路几何由杆塔顺序重建。
+     */
+    fun convertThematicFeatureToLine(featureId: String, voltage: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val f = thematicRepo.feature(featureId)
+            if (f == null || f.kind != "line") {
+                _messages.emit("只有线要素可以转为线路")
+                return@launch
+            }
+            val layers = thematicRepo.getLayers()
+            val layerName = layers.firstOrNull { it.id == f.layerId }?.name ?: "专题线路"
+            val n = createLineFromCoords(
+                coords = com.kunming.powerline.ui.map.ThematicLineConverter.lineCoords(f.geometryGeojson),
+                name = com.kunming.powerline.ui.map.ThematicLineConverter.lineName(f.name, layerName, 0, 1),
+                voltage = voltage
+            )
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(
+                if (n > 0) "已转为线路（$n 基杆塔）" else "转换失败：线要素坐标不足 2 个点"
+            )
+        }
+    }
+
+    /**
+     * 整层批量：该图层所有线要素各转成一条线路
+     */
+    fun convertThematicLinesToLines(layerId: String, voltage: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val layer = thematicRepo.getLayers().firstOrNull { it.id == layerId }
+            if (layer == null) {
+                _messages.emit("图层不存在")
+                return@launch
+            }
+            val feats = thematicRepo.featuresOfLayer(layerId).filter { it.kind == "line" }
+            if (feats.isEmpty()) {
+                _messages.emit("该图层没有线要素，无法转换")
+                return@launch
+            }
+            var lineCount = 0
+            var towerCount = 0
+            feats.forEachIndexed { i, f ->
+                val coords = com.kunming.powerline.ui.map.ThematicLineConverter.lineCoords(f.geometryGeojson)
+                val name = com.kunming.powerline.ui.map.ThematicLineConverter.lineName(
+                    f.name, layer.name, i, feats.size
+                )
+                val n = createLineFromCoords(coords, name, voltage)
+                if (n > 0) {
+                    lineCount++
+                    towerCount += n
+                }
+            }
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(
+                if (lineCount > 0) "已转换 $lineCount 条线路 / $towerCount 基杆塔"
+                else "转换失败：没有可用的线要素坐标"
+            )
+        }
+    }
+
+    /**
+     * 用一组坐标建线路：顶点 → 杆塔（编号 1..N），返回杆塔数（0 表示失败）
+     */
+    private suspend fun createLineFromCoords(
+        coords: List<Pair<Double, Double>>,
+        name: String,
+        voltage: Int
+    ): Int {
+        val pts = com.kunming.powerline.ui.map.ThematicLineConverter.dropClosingPoint(coords)
+        if (pts.size < com.kunming.powerline.ui.map.ThematicLineConverter.MIN_POINTS) return 0
+        val uniqueName = uniqueLineName(name)
+        val lineId = com.kunming.powerline.data.repository.LineRepository.newId("LN")
+        val line = com.kunming.powerline.data.local.entity.LineEntity(
+            id = lineId,
+            name = uniqueName,
+            voltageLevel = voltage,
+            remark = "由专题图层转换"
+        )
+        lineRepo.createLine(line)
+        val nums = com.kunming.powerline.ui.map.ThematicLineConverter.towerNumbers(pts.size)
+        val towers = pts.mapIndexed { i, p ->
+            com.kunming.powerline.data.local.entity.TowerEntity(
+                id = com.kunming.powerline.data.repository.LineRepository.newId("TW"),
+                lineId = lineId,
+                towerNumber = nums[i],
+                lon = p.first,
+                lat = p.second,
+                seq = i
+            )
+        }
+        lineRepo.addTowers(towers)
+        return towers.size
+    }
+
+    /** 线路重名自动加序号 */
+    private suspend fun uniqueLineName(name: String): String {
+        val existing = lineRepo.lineList().map { it.name }.toSet()
+        if (name !in existing) return name
+        var i = 2
+        while ("$name ($i)" in existing) i++
+        return "$name ($i)"
+    }
+
+    fun deleteThematicLayer(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.delete(id)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已删除专题图层")
+        }
+    }
+
+    fun deleteAllThematic() {
+        viewModelScope.launch(Dispatchers.IO) {
+            thematicRepo.deleteAll()
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已清空全部专题图层")
+        }
+    }
+
     /** 同塔多回视觉偏移批量重置 */
     fun resetVisualOffsets() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -753,6 +1189,36 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             db.towerDao().update(tower)
             lineRepo.rebuildLineGeometry(tower.lineId)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 更新线路基本信息（名称/电压/起止站/投运日期/备注） */
+    fun updateLine(line: LineEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.lineDao().upsert(line)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("线路「${line.name}」已保存")
+        }
+    }
+
+    /** 删除单基杆塔（并重建线路几何） */
+    fun deleteTower(tower: TowerEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.towerDao().deleteById(tower.id)
+            lineRepo.rebuildLineGeometry(tower.lineId)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 重新按杆塔 seq 排序整条线路的杆塔（编辑后统一调用） */
+    fun resequenceTowers(lineId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = db.towerDao().getByLine(lineId)
+            list.forEachIndexed { i, t ->
+                if (t.seq != i + 1) db.towerDao().update(t.copy(seq = i + 1))
+            }
+            lineRepo.rebuildLineGeometry(lineId)
             _layerVersion.value = System.currentTimeMillis()
         }
     }

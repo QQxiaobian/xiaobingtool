@@ -23,7 +23,8 @@ enum class MapLayer(
     CAMERA("camera", "视频监控图层", Icons.Filled.Videocam, "点击打开播放器预览"),
     GUARDIAN("guardian", "护线员图层", Icons.Filled.PersonPinCircle, "护线员位置、姓名、责任段"),
     DANGER("danger", "危险点图层", Icons.Filled.Warning, "危险点类型、等级、措施"),
-    CUSTOM("custom", "自定义图层", Icons.Filled.Layers, "导入 KML/GeoJSON/绘制结果");
+    THEMATIC("thematic", "专题图层", Icons.Filled.Map, "巡视点位、区域范围等点/线/面图层"),
+    CUSTOM("custom", "自定义图层", Icons.Filled.Layers, "绘制结果（线/面/文字标注）");
 
     companion object {
         fun byId(id: String): MapLayer? = entries.firstOrNull { it.id == id }
@@ -38,6 +39,11 @@ object LayerIds {
     const val LYR_LINE = "lyr-line"
     const val LYR_LINE_CASING = "lyr-line-casing"
     const val LYR_LINE_HIGHLIGHT = "lyr-line-highlight"
+    const val SRC_LINE_LABEL = "src-line-label"
+    const val LYR_LINE_LABEL = "lyr-line-label"
+    /** 线路中点名称（短线也保证能显示） */
+    const val SRC_LINE_LABEL_POINT = "src-line-label-point"
+    const val LYR_LINE_LABEL_POINT = "lyr-line-label-point"
 
     const val SRC_CABLE = "src-cable"
     const val LYR_CABLE = "lyr-cable"
@@ -46,6 +52,13 @@ object LayerIds {
     const val LYR_TOWER = "lyr-tower"
     const val LYR_TOWER_LABEL = "lyr-tower-label"
     const val LYR_TOWER_SELECT = "lyr-tower-select"
+
+    // 实时定位（蓝点 + 精度圈 + 方向箭头）
+    const val SRC_MY_LOCATION = "src-my-location"
+    const val LYR_MY_LOCATION_ACCURACY = "lyr-my-location-accuracy"
+    const val LYR_MY_LOCATION_HEADING = "lyr-my-location-heading"
+    const val LYR_MY_LOCATION = "lyr-my-location"
+    const val ICON_HEADING = "icon-heading"
 
     const val SRC_FAVORITE = "src-favorite"
     const val LYR_FAVORITE = "lyr-favorite"
@@ -67,6 +80,25 @@ object LayerIds {
 
     const val SRC_DANGER = "src-danger"
     const val LYR_DANGER = "lyr-danger"
+
+    // 专题图层（导入的点 / 线 / 面要素）
+    const val SRC_THEMATIC = "src-thematic"
+    const val LYR_THEMATIC_FILL = "lyr-thematic-fill"
+    const val LYR_THEMATIC_LINE = "lyr-thematic-line"
+    const val LYR_THEMATIC_POINT = "lyr-thematic-point"
+    const val LYR_THEMATIC_LABEL = "lyr-thematic-label"
+    /** 密集专题图层的名称（启用碰撞避让） */
+    const val LYR_THEMATIC_LABEL_DENSE = "lyr-thematic-label-dense"
+
+    /**
+     * 面要素名称（行政区划 / 巡视区域）
+     *
+     * 独立成层：既避免 MapLibre 在 Polygon 上放置文字不稳定的问题，
+     * 也能让区域名在更小的缩放级别（6 级起）就可见 —— 看行政区划必须在
+     * 省市级视野就能认出每个区县。
+     */
+    const val SRC_AREA_LABEL = "src-area-label"
+    const val LYR_AREA_LABEL = "lyr-area-label"
 
     const val SRC_CUSTOM = "src-custom"
     const val LYR_CUSTOM_LINE = "lyr-custom-line"

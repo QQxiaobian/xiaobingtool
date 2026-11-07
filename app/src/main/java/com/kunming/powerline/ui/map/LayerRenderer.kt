@@ -15,6 +15,8 @@ import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.PhotoEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
+import com.kunming.powerline.data.local.entity.ThematicFeatureEntity
+import com.kunming.powerline.data.local.entity.ThematicLayerEntity
 import com.kunming.powerline.data.local.entity.TowerEntity
 import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.data.local.entity.CableEntity
@@ -32,6 +34,45 @@ import org.maplibre.geojson.Point
  */
 object LayerRenderer {
 
+    /** 超过该要素数的专题图层，名称启用碰撞避让（防止几千条文字同时排版） */
+    const val DENSE_LABEL_THRESHOLD = 120
+
+    /** 面要素超过该数量时不再逐面标注（行政区划一般几十到几百个面，远低于此值） */
+    const val POLYGON_LABEL_MAX = 800
+
+    /**
+     * 实时定位渲染：精度圈 + 方向箭头 + 蓝点
+     *
+     * @param bearing 设备朝向（度，0=正北顺时针）。静止时 GPS bearing 为 0，
+     *                由调用方传入罗盘方位角，保证停下时箭头仍指向手机朝向。
+     */
+    fun renderMyLocation(
+        ctrl: MapController,
+        lon: Double,
+        lat: Double,
+        accuracy: Float,
+        bearing: Float,
+        showHeading: Boolean = true
+    ) {
+        val zoom = ctrl.currentZoom
+        val metersPerPx = 156543.03392 * kotlin.math.cos(Math.toRadians(lat)) / Math.pow(2.0, zoom)
+        val radiusPx = (accuracy / metersPerPx).coerceIn(8.0, 320.0)
+        val f = Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+            addNumberProperty("bearing", bearing.toDouble())
+            addNumberProperty("accuracyRadius", radiusPx)
+            // 预渲染箭头图标名（按角度就近取整），由符号图层直接用 icon 属性选图
+            addStringProperty("icon", MapIcons.headingIconName(bearing))
+        }
+        ctrl.setFeatures(LayerIds.SRC_MY_LOCATION, listOf(f))
+        ctrl.setLayerVisible(LayerIds.LYR_MY_LOCATION_ACCURACY, true)
+        ctrl.setLayerVisible(LayerIds.LYR_MY_LOCATION_HEADING, showHeading)
+    }
+
+    /** 停止定位后隐藏位置图层 */
+    fun clearMyLocation(ctrl: MapController) {
+        ctrl.setFeatures(LayerIds.SRC_MY_LOCATION, emptyList())
+    }
+
     suspend fun renderAll(
         ctrl: MapController,
         lines: List<LineEntity>,
@@ -45,10 +86,13 @@ object LayerRenderer {
         dangers: List<DangerPointEntity>,
         crossings: List<CrossingEntity>,
         overlays: List<CustomOverlayEntity>,
+        thematicLayers: List<ThematicLayerEntity> = emptyList(),
+        thematicFeatures: List<ThematicFeatureEntity> = emptyList(),
         layerOn: (MapLayer) -> Boolean,
         voltageFilter: Set<Int>,
         textSize: Float,
-        selectedTowerId: String?
+        selectedTowerId: String?,
+        labelZoom: Float = MapController.LABEL_MIN_ZOOM
     ) = withContext(Dispatchers.Default) {
         // ---- 线路 ----
         val towersByLine = towers.groupBy { it.lineId }
@@ -62,6 +106,30 @@ object LayerRenderer {
                 addNumberProperty("voltage", l.voltageLevel.toDouble())
                 addStringProperty("color", VoltagePalette.hexColorOf(l.voltageLevel))
                 addNumberProperty("width", VoltagePalette.widthOf(l.voltageLevel).toDouble())
+            }
+        }
+        // ---- 线路名称标注 ----
+        // 沿线排布（长线路放大后重复出现）+ 中点固定（短线也一定能看到名称）
+        val visibleLines = lines.filter { it.voltageLevel in voltageFilter }
+        val lineLabelFeatures = visibleLines.mapNotNull { l ->
+            val ts = towersByLine[l.id].orEmpty().sortedBy { it.seq }
+            if (ts.size < 2) return@mapNotNull null
+            val coords = ts.map { Point.fromLngLat(it.lon, it.lat) }
+            Feature.fromGeometry(org.maplibre.geojson.LineString.fromLngLats(coords)).apply {
+                addStringProperty("fid", l.id)
+                addStringProperty("label", l.name)
+                addStringProperty("color", VoltagePalette.hexColorOf(l.voltageLevel))
+            }
+        }
+        val lineLabelPointFeatures = visibleLines.mapNotNull { l ->
+            val ts = towersByLine[l.id].orEmpty().sortedBy { it.seq }
+            if (ts.size < 2) return@mapNotNull null
+            // 取线路几何的中间节点作为锚点，避免按首尾直线求中点落到线外
+            val mid = ts[ts.size / 2]
+            Feature.fromGeometry(Point.fromLngLat(mid.lon, mid.lat)).apply {
+                addStringProperty("fid", l.id)
+                addStringProperty("label", l.name)
+                addStringProperty("color", VoltagePalette.hexColorOf(l.voltageLevel))
             }
         }
         // ---- 电缆 ----
@@ -132,6 +200,112 @@ object LayerRenderer {
                 addStringProperty("crossObject", x.crossObject ?: x.crossType)
             }
         }
+        // ---- 专题图层（点 / 线 / 面）----
+        val visibleLayers = thematicLayers.filter { it.visible }.associateBy { it.id }
+        // 每个图层实际的要素数（layer.featureCount 是导入时写的，可能因移动要素而不准）
+        val featureCountByLayer = thematicFeatures.groupingBy { it.layerId }.eachCount()
+        val thematicFeatureList = thematicFeatures.mapNotNull { f ->
+            val layer = visibleLayers[f.layerId] ?: return@mapNotNull null
+            try {
+                val src = Feature.fromJson(
+                    """{"type":"Feature","properties":{},"geometry":${f.geometryGeojson}}"""
+                )
+                // 名称：要素名优先，面要素无名字时退回图层名；备注取属性里的 description / 备注
+                // 注意：面要素的名称**不**在本要素上渲染（MapLibre 在 Polygon 上放置文字的
+                // 行为不稳定，很多机型直接不画），改由下面的 polygonLabelFeatures 用
+                // 独立点要素承载，保证行政区划每个区县的名字都能显示。
+                val label = if (layer.labelVisible && f.kind != "polygon") {
+                    ThematicLabels.compose(
+                        name = f.name,
+                        propertiesJson = f.propertiesJson,
+                        layerName = layer.name,
+                        layerRemark = layer.remark,
+                        kind = f.kind,
+                        featureCount = layer.featureCount
+                    )
+                } else ""
+                Feature.fromGeometry(src.geometry()).apply {
+                    addStringProperty("fid", f.id)
+                    addStringProperty("layerId", f.layerId)
+                    addStringProperty("kind", f.kind)
+                    addStringProperty("label", label)
+                    addStringProperty("layerName", layer.name)
+                    addStringProperty("remark", layer.remark ?: "")
+                    addStringProperty("color", "#" + Integer.toHexString(layer.color).takeLast(6))
+                    addNumberProperty("fillOpacity", layer.fillOpacity.toDouble())
+                    addNumberProperty("lineWidth", layer.lineWidth.toDouble())
+                    // 1 = 密集图层（名称开启碰撞避让），0 = 稀疏图层（名称必显）
+                    addNumberProperty(
+                        "labelDense",
+                        if (layer.featureCount > DENSE_LABEL_THRESHOLD) 1.0 else 0.0
+                    )
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+        // ---- 面要素名称：用独立点要素承载 ----
+        // 行政区划、巡视区域这类数据每个面都有自己的名字，必须逐面显示。
+        // 面本身的 symbol 在部分机型上不渲染，这里在其质心处补一个纯文字点。
+        val polygonLabelFeatures = thematicFeatures.mapNotNull { f ->
+            val layer = visibleLayers[f.layerId] ?: return@mapNotNull null
+            if (!layer.labelVisible || f.kind != "polygon") return@mapNotNull null
+            if ((featureCountByLayer[f.layerId] ?: 0) > POLYGON_LABEL_MAX) return@mapNotNull null
+            val lon = f.lon ?: return@mapNotNull null
+            val lat = f.lat ?: return@mapNotNull null
+            val text = ThematicLabels.compose(
+                name = f.name,
+                propertiesJson = f.propertiesJson,
+                layerName = layer.name,
+                layerRemark = layer.remark,
+                kind = f.kind,
+                featureCount = featureCountByLayer[f.layerId] ?: 0
+            )
+            if (text.isBlank()) return@mapNotNull null
+            Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+                addStringProperty("fid", f.id)
+                addStringProperty("layerId", f.layerId)
+                addStringProperty("kind", "label")
+                addStringProperty("label", text)
+                addStringProperty("layerName", layer.name)
+                addStringProperty("remark", layer.remark ?: "")
+                addStringProperty("color", "#" + Integer.toHexString(layer.color).takeLast(6))
+                addNumberProperty("fillOpacity", layer.fillOpacity.toDouble())
+                addNumberProperty("lineWidth", layer.lineWidth.toDouble())
+                addNumberProperty("labelDense", 0.0)
+            }
+        }
+
+        // ---- 图层级区域标注 ----
+        // 面图层里的要素常常整层都没有名字（CAD 转出来的区域尤其如此），
+        // 这时不逐个面去贴图层名（会糊满屏），而是给整个图层补一条"图层名标注"，
+        // 位置取第一个有坐标的面要素质心。
+        val layerLabelFeatures = visibleLayers.values.mapNotNull { layer ->
+            if (!layer.labelVisible || !layer.hasPolygon) return@mapNotNull null
+            val own = thematicFeatures.filter { it.layerId == layer.id }
+            if (own.isEmpty()) return@mapNotNull null
+            if (own.size > POLYGON_LABEL_MAX) return@mapNotNull null
+            // 只要有一个面能显示自己的名字（或退回图层名），就不再补整层标注
+            if (polygonLabelFeatures.any { it.getStringProperty("layerId") == layer.id }) {
+                return@mapNotNull null
+            }
+            val anchor = own.firstOrNull { it.lon != null && it.lat != null } ?: return@mapNotNull null
+            val text = listOfNotNull(
+                layer.name.takeIf { it.isNotBlank() },
+                layer.remark?.takeIf { it.isNotBlank() }
+            ).joinToString("\n")
+            Feature.fromGeometry(Point.fromLngLat(anchor.lon!!, anchor.lat!!)).apply {
+                addStringProperty("fid", "layer-label-" + layer.id)
+                addStringProperty("layerId", layer.id)
+                addStringProperty("kind", "label")
+                addStringProperty("label", text)
+                addStringProperty("color", "#" + Integer.toHexString(layer.color).takeLast(6))
+                addNumberProperty("fillOpacity", layer.fillOpacity.toDouble())
+                addNumberProperty("lineWidth", layer.lineWidth.toDouble())
+                addNumberProperty("labelDense", 0.0)
+            }
+        }
+
         // ---- 自定义（绘制结果）----
         val overlayFeatures = overlays.mapNotNull { o ->
             try {
@@ -151,7 +325,12 @@ object LayerRenderer {
         }
 
         withContext(Dispatchers.Main) {
+            // 名称显示阈值（低于该级别不排版文字，减少密集数据卡顿）
+            ctrl.applyLabelZoom(labelZoom)
+
             ctrl.setFeatures(LayerIds.SRC_LINE, lineFeatures)
+            ctrl.setFeatures(LayerIds.SRC_LINE_LABEL, lineLabelFeatures)
+            ctrl.setFeatures(LayerIds.SRC_LINE_LABEL_POINT, lineLabelPointFeatures)
             ctrl.setFeatures(LayerIds.SRC_CABLE, cableFeatures)
             ctrl.setFeatures(LayerIds.SRC_TOWER, towerFeatures)
             ctrl.setFeatures(LayerIds.SRC_FAVORITE, favFeatures)
@@ -162,10 +341,15 @@ object LayerRenderer {
             ctrl.setFeatures(LayerIds.SRC_DANGER, dangerFeatures)
             ctrl.setFeatures(LayerIds.SRC_CROSSING, crossingFeatures)
             ctrl.setFeatures(LayerIds.SRC_CUSTOM, overlayFeatures)
+            ctrl.setFeatures(LayerIds.SRC_THEMATIC, thematicFeatureList + layerLabelFeatures)
+            ctrl.setFeatures(LayerIds.SRC_AREA_LABEL, polygonLabelFeatures)
 
             ctrl.setLayerVisible(LayerIds.LYR_LINE, layerOn(MapLayer.OVERHEAD_LINE))
+            ctrl.setLayerVisible(LayerIds.LYR_LINE_LABEL, layerOn(MapLayer.OVERHEAD_LINE))
+            ctrl.setLayerVisible(LayerIds.LYR_LINE_LABEL_POINT, layerOn(MapLayer.OVERHEAD_LINE))
             ctrl.setLayerVisible(LayerIds.LYR_LINE_CASING, layerOn(MapLayer.OVERHEAD_LINE))
             ctrl.setLayerVisible(LayerIds.LYR_TOWER, layerOn(MapLayer.OVERHEAD_LINE))
+            ctrl.setLayerVisible(LayerIds.LYR_TOWER_LABEL, layerOn(MapLayer.OVERHEAD_LINE))
             ctrl.setLayerVisible(LayerIds.LYR_CABLE, layerOn(MapLayer.CABLE))
             ctrl.setLayerVisible(LayerIds.LYR_FAVORITE, layerOn(MapLayer.FAVORITE))
             ctrl.setLayerVisible(LayerIds.LYR_TAKEOFF, layerOn(MapLayer.TAKEOFF))
@@ -174,6 +358,12 @@ object LayerRenderer {
             ctrl.setLayerVisible(LayerIds.LYR_CAMERA, layerOn(MapLayer.CAMERA))
             ctrl.setLayerVisible(LayerIds.LYR_GUARDIAN, layerOn(MapLayer.GUARDIAN))
             ctrl.setLayerVisible(LayerIds.LYR_DANGER, layerOn(MapLayer.DANGER))
+            ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_FILL, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LINE, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_POINT, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LABEL, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LABEL_DENSE, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_AREA_LABEL, layerOn(MapLayer.THEMATIC))
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_FILL, layerOn(MapLayer.CUSTOM))
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_LINE, layerOn(MapLayer.CUSTOM))
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_TEXT, layerOn(MapLayer.CUSTOM))
@@ -182,8 +372,9 @@ object LayerRenderer {
 
     /**
      * 杆塔要素生成：
+     * - 同塔多回：**仅跨线路**同址才算同塔（同一线路内的杆塔即使是同址也不能合并，
+     *   否则重复坐标的杆塔会被误判成多回偏移、甚至叠在一起看起来"只有一个点"）
      * - 同址（坐标差 < 0.0001°）的多回杆塔按回路序做 2~5m 纵向偏移
-     * - 识别"多回"：跨线路同址 或 单线路内同址
      */
     fun buildTowerFeatures(
         towers: List<TowerEntity>,
@@ -192,12 +383,12 @@ object LayerRenderer {
         selectedTowerId: String?
     ): List<Feature> {
         val lineMap = lines.associateBy { it.id }
-        // 同址分组（仅同线路内 + 跨线路，都视为同塔）
+        // 同址分组：只在不同线路之间识别（跨线路同塔多回）
         val groups = mutableListOf<MutableList<TowerEntity>>()
         towers.forEach { t ->
             val g = groups.firstOrNull { grp ->
                 val rep = grp.first()
-                (rep.lineId == t.lineId || rep.lon != t.lon) &&
+                rep.lineId != t.lineId &&
                     com.kunming.powerline.util.GeoUtils.nearlySameLocation(rep.lon, rep.lat, t.lon, t.lat, 0.0001)
             }
             if (g != null) g.add(t) else groups.add(mutableListOf(t))

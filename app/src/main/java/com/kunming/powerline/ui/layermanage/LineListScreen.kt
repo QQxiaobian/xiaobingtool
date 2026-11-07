@@ -53,11 +53,34 @@ fun LineListScreen(
     val lines = vm.lines.value
     val towers = vm.towers.value
     val filter = vm.voltageFilter.value
-
     var keyword by remember { mutableStateOf("") }
+    // 当前正在编辑的线路（非空时显示编辑页）
+    var editingLineId by remember { mutableStateOf<String?>(null) }
+    // filter 为空 = 全部；否则只显示选中等级（注意：还要兼容文件里识别出的非标准等级，
+    // 这类线路在"全部"下必须可见，不能被静默过滤掉）
     val shown = lines
         .filter { filter.isEmpty() || filter.contains(it.voltageLevel) }
         .filter { keyword.isBlank() || it.name.contains(keyword, true) || (it.startStation ?: "").contains(keyword, true) }
+
+    // ---------- 线路编辑页 ----------
+    val editId = editingLineId
+    if (editId != null) {
+        val editLine = lines.firstOrNull { it.id == editId }
+        if (editLine != null) {
+            val lineTowers = towers.filter { it.lineId == editId }
+            LineEditScreen(
+                line = editLine,
+                towers = lineTowers,
+                vm = vm,
+                onBack = { editingLineId = null },
+                onToast = onToast,
+                onFocusTower = onFocus
+            )
+            return
+        } else {
+            editingLineId = null
+        }
+    }
 
     ManageScaffold(
         title = "架空线路图层",
@@ -99,36 +122,72 @@ fun LineListScreen(
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("暂无线路数据", fontSize = 13.sp, color = Color(0xFF8A8078))
+                    Text(
+                        if (lines.isEmpty()) "暂无线路数据" else "当前筛选条件下没有线路",
+                        fontSize = 13.sp, color = Color(0xFF8A8078)
+                    )
                     Spacer(Modifier.height(6.dp))
-                    Text("点击右上角 + 创建或导入线路", fontSize = 11.5.sp, color = Color(0xFFA99E94))
+                    Text(
+                        if (lines.isEmpty()) "点击右上角 + 创建或导入线路"
+                        else "共 ${lines.size} 条线路，请点击「全部」或清空搜索词",
+                        fontSize = 11.5.sp, color = Color(0xFFA99E94)
+                    )
+                    if (lines.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "查看全部",
+                            fontSize = 12.sp, color = PowerRed, fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clickable { vm.setVoltageFilter(emptySet()); keyword = "" }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         } else {
-            LazyColumn(Modifier.weight(1f)) {
+            LazyColumn(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
                 items(shown, key = { it.id }) { line ->
                     val cnt = towers.count { it.lineId == line.id }
                     val color = Color(android.graphics.Color.parseColor(VoltagePalette.hexColorOf(line.voltageLevel)))
-                    ManageRow(
-                        title = line.name,
-                        subtitle = "${VoltagePalette.labelOf(line.voltageLevel)} · ${cnt} 基杆塔" +
-                            if (line.isEmptyLine) " · 空线路" else "",
-                        leadingColor = color,
-                        trailing = "定位 ›",
-                        onClick = {
-                            val t0 = towers.filter { it.lineId == line.id }.minByOrNull { it.seq }
-                            if (t0 != null) {
-                                onFocus(t0.lon, t0.lat, 14.0)
-                                onToast("已定位到 ${line.name} 首基杆塔")
-                            } else {
-                                onToast("该线路暂无杆塔坐标")
+                    // 注意：外层不要用 Row + weight(1f)，否则 ManageRow 内部的 fillMaxWidth
+                    // 会被水平权重压成 0 宽，整行"消失"（v1.0.6 列表空白的根因）
+                    Box(Modifier.fillMaxWidth()) {
+                        ManageRow(
+                            modifier = Modifier.padding(end = 56.dp),
+                            title = line.name,
+                            subtitle = "${VoltagePalette.labelOf(line.voltageLevel)} · ${cnt} 基杆塔" +
+                                if (line.isEmptyLine) " · 空线路" else "",
+                            leadingColor = color,
+                            trailing = "定位 ›",
+                            onClick = {
+                                val t0 = towers.filter { it.lineId == line.id }.minByOrNull { it.seq }
+                                if (t0 != null) {
+                                    onFocus(t0.lon, t0.lat, 14.0)
+                                    onToast("已定位到 ${line.name} 首基杆塔")
+                                } else {
+                                    onToast("该线路暂无杆塔坐标")
+                                }
+                            },
+                            onDelete = {
+                                vm.deleteLine(line.id)
+                                onToast("已删除线路「${line.name}」")
                             }
-                        },
-                        onDelete = {
-                            vm.deleteLine(line.id)
-                            onToast("已删除线路「${line.name}」")
-                        }
-                    )
+                        )
+                        Text(
+                            "编辑",
+                            fontSize = 12.sp,
+                            color = PowerRed,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .clickable { editingLineId = line.id }
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                        )
+                    }
                 }
             }
         }
@@ -141,10 +200,10 @@ fun LineListScreen(
 private fun VoltageChip(text: String, selected: Boolean, color: Color = PowerRed, onClick: () -> Unit) {
     Box(
         Modifier
-            .background(if (selected) color.copy(alpha = 0.14f) else Color(0x0F000000), RoundedCornerShape(8.dp))
+            .background(if (selected) color.copy(alpha = 0.14f) else Color(0xFFEFE7DC), RoundedCornerShape(8.dp))
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
-        Text(text, fontSize = 11.5.sp, color = if (selected) color else Color(0xFF6D6259))
+        Text(text, fontSize = 11.5.sp, color = if (selected) color else Color(0xFF7A6F66))
     }
 }

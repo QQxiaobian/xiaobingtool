@@ -56,6 +56,13 @@ import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
 import com.kunming.powerline.ui.MapViewModel
 import com.kunming.powerline.ui.layer.MapLayer
+import com.kunming.powerline.ui.theme.LightPanelTheme
+import com.kunming.powerline.ui.theme.PanelBg
+import com.kunming.powerline.ui.theme.PanelCard
+import com.kunming.powerline.ui.theme.PanelLine
+import com.kunming.powerline.ui.theme.PanelText
+import com.kunming.powerline.ui.theme.PanelTextHint
+import com.kunming.powerline.ui.theme.PanelTextSub
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.util.GeoUtils
 import com.kunming.powerline.util.VoltagePalette
@@ -70,30 +77,32 @@ fun ManageScaffold(
     actions: @Composable (() -> Unit)? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xFFFBF6EE))
-            .statusBarsPadding()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+    LightPanelTheme {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(PanelBg)
+                .statusBarsPadding()
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, "返回", tint = Color(0xFF333333))
-            }
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2B2B2B))
-                if (!subtitle.isNullOrBlank()) {
-                    Text(subtitle, fontSize = 11.sp, color = Color(0xFF8A8078))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, "返回", tint = PanelText)
                 }
+                Column(Modifier.weight(1f)) {
+                    Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = PanelText)
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(subtitle, fontSize = 11.sp, color = PanelTextSub)
+                    }
+                }
+                actions?.invoke()
+                Spacer(Modifier.width(6.dp))
             }
-            actions?.invoke()
-            Spacer(Modifier.width(6.dp))
+            Divider(color = Color(0x14000000), thickness = 0.8.dp)
+            content()
         }
-        Divider(color = Color(0x14000000), thickness = 0.8.dp)
-        content()
     }
 }
 
@@ -104,11 +113,13 @@ fun ManageRow(
     subtitle: String? = null,
     trailing: String? = null,
     leadingColor: Color? = null,
+    modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
 ) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .let { if (onClick != null) it.clickable { onClick() } else it }
             .padding(start = 16.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
@@ -119,19 +130,29 @@ fun ManageRow(
             Spacer(Modifier.width(10.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.5.sp, color = Color(0xFF2B2B2B), fontWeight = FontWeight.Medium)
+            Text(title, fontSize = 13.5.sp, color = PanelText, fontWeight = FontWeight.Medium)
             if (!subtitle.isNullOrBlank()) {
-                Text(subtitle, fontSize = 11.5.sp, color = Color(0xFF8A8078), lineHeight = 16.sp)
+                Text(subtitle, fontSize = 11.5.sp, color = PanelTextSub, lineHeight = 16.sp)
             }
         }
-        if (trailing != null) Text(trailing, fontSize = 11.5.sp, color = Color(0xFF6D6259))
+        if (trailing != null) Text(trailing, fontSize = 11.5.sp, color = PanelTextSub)
+        if (onEdit != null) {
+            Text(
+                "编辑",
+                fontSize = 11.5.sp,
+                color = PowerRed,
+                modifier = Modifier
+                    .clickable { onEdit() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
         if (onDelete != null) {
             IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
                 Icon(Icons.Default.Delete, "删除", tint = Color(0xFFB0A197), modifier = Modifier.size(17.dp))
             }
         }
     }
-    Divider(color = Color(0x0F000000), thickness = 0.6.dp, modifier = Modifier.padding(start = 16.dp))
+    Divider(color = PanelLine.copy(alpha = 0.85f), thickness = 0.6.dp, modifier = Modifier.padding(start = 16.dp))
 }
 
 /** 小输入框 */
@@ -144,10 +165,23 @@ fun ManageField(label: String, value: String, numeric: Boolean = false, onChange
         singleLine = true,
         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
         keyboardOptions = if (numeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+        shape = RoundedCornerShape(10.dp),
         colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = PanelText,
+            unfocusedTextColor = PanelText,
+            disabledTextColor = PanelTextHint,
+            focusedContainerColor = PanelCard,
+            unfocusedContainerColor = PanelCard,
+            disabledContainerColor = Color(0xFFF3ECE1),
+            cursorColor = PowerRed,
             focusedBorderColor = PowerRed,
-            unfocusedBorderColor = Color(0x33000000),
-            focusedLabelColor = PowerRed
+            unfocusedBorderColor = PanelLine,
+            disabledBorderColor = PanelLine,
+            focusedLabelColor = PowerRed,
+            unfocusedLabelColor = PanelTextSub,
+            disabledLabelColor = PanelTextHint,
+            focusedPlaceholderColor = PanelTextHint,
+            unfocusedPlaceholderColor = PanelTextHint
         ),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     )
@@ -191,6 +225,17 @@ fun LayerManageHost(
         MapLayer.CAMERA -> CameraManageScreen(vm, onClose, onToast)
         MapLayer.GUARDIAN -> GuardianManageScreen(vm, onClose, onToast, onFocus)
         MapLayer.DANGER -> DangerManageScreen(vm, onClose, onToast, onFocus)
+        MapLayer.THEMATIC -> ThematicLayerScreen(
+            vm = vm,
+            onBack = onClose,
+            onToast = onToast,
+            onFocus = onFocus,
+            onImport = onOpenImport,
+            onDeleteAll = {
+                vm.deleteAllThematic()
+                onToast("已清空全部专题图层")
+            }
+        )
         MapLayer.CUSTOM -> CustomManageScreen(vm, onClose, onToast, onOpenImport)
     }
 }

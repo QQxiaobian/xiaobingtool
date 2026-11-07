@@ -3,6 +3,7 @@ package com.kunming.powerline.data.parser
 import android.content.Context
 import android.net.Uri
 import android.util.Xml
+import com.kunming.powerline.util.VoltagePalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -32,8 +33,8 @@ class GeoFileParser @Inject constructor(
                 ?: return@withContext Result.failure(Exception("无法读取文件"))
 
             val result: ParseResult = when {
-                lower.endsWith(".kmz") -> parseKmz(bytes, onProgress)
-                lower.endsWith(".kml") -> parseKml(String(bytes, Charsets.UTF_8), onProgress)
+                lower.endsWith(".kmz") -> parseKmz(bytes, onProgress, name)
+                lower.endsWith(".kml") -> parseKml(String(bytes, Charsets.UTF_8), onProgress, name)
                 lower.endsWith(".gpx") -> parseGpx(String(bytes, Charsets.UTF_8), onProgress)
                 lower.endsWith(".geojson") || lower.endsWith(".json") -> parseGeoJson(String(bytes, Charsets.UTF_8), onProgress)
                 lower.endsWith(".shp") || lower.endsWith(".zip") -> parseShapefileZip(bytes, onProgress)
@@ -42,16 +43,52 @@ class GeoFileParser @Inject constructor(
                     val head = String(bytes, 0, minOf(400, bytes.size), Charsets.UTF_8).trim()
                     when {
                         head.startsWith("{") -> parseGeoJson(String(bytes, Charsets.UTF_8), onProgress)
-                        head.contains("<kml", true) -> parseKml(String(bytes, Charsets.UTF_8), onProgress)
+                        head.contains("<kml", true) -> parseKml(String(bytes, Charsets.UTF_8), onProgress, name)
                         head.contains("<gpx", true) -> parseGpx(String(bytes, Charsets.UTF_8), onProgress)
                         else -> return@withContext Result.failure(Exception("不支持的文件格式：$name"))
                     }
                 }
             }
-            Result.success(result.copy(format = formatOf(lower, result.format)))
+            Result.success(mergeKmlByFile(result.copy(format = formatOf(lower, result.format)), name))
         } catch (t: Throwable) {
             Result.failure(t)
         }
+    }
+
+    /**
+     * KML / KMZ 文件的后处理（**不改名、不重编号**）：
+     * - 线路名沿用文件内部名称（Folder / Document / Placemark），
+     *   只有名称为空或明显是占位符时才用文件名兜底
+     * - 电压等级：文件内没有写时按文件名识别（"220kV" / "220千伏" / "500kV线路" ...）
+     * - 杆塔编号保持原样，绝不重排
+     */
+    private fun mergeKmlByFile(result: ParseResult, fileName: String): ParseResult {
+        val lowerName = fileName.lowercase()
+        val isKml = lowerName.endsWith(".kml") || lowerName.endsWith(".kmz") ||
+            (lowerName.isBlank() && result.format == "kml")
+        if (!isKml || result.lines.isEmpty()) return result
+        val baseName = fileName.trim()
+            .removeSuffix(".kml").removeSuffix(".kmz")
+            .removeSuffix(".KML").removeSuffix(".KMZ")
+            .substringBeforeLast(".kml").substringBeforeLast(".kmz")
+        val fileVoltage = VoltagePalette.parseLevel(baseName)
+        val multi = result.lines.size > 1
+
+        val fixed = result.lines.mapIndexed { i, l ->
+            val placeholder = l.name.isBlank() || l.name == "未命名线路"
+            val name = when {
+                !placeholder -> l.name
+                baseName.isNotBlank() && !multi -> baseName
+                baseName.isNotBlank() -> "${baseName}_${i + 1}"
+                else -> "未命名线路"
+            }
+            // 只有文件内确实没有电压信息（解析成默认 110 且名称里也没有）时才用文件名
+            val voltage = if (l.voltageLevel == 110 && fileVoltage != null &&
+                VoltagePalette.parseLevel(l.name) == null
+            ) fileVoltage else l.voltageLevel
+            l.copy(name = name, voltageLevel = voltage)
+        }
+        return result.copy(lines = fixed)
     }
 
     private fun formatOf(name: String, fallback: String): String = when {
@@ -62,184 +99,52 @@ class GeoFileParser @Inject constructor(
         else -> fallback
     }
 
+    /**
+     * 批量导入：解析多个地理信息文件，结果合并。
+     * 用于多选文件场景：线路名按文件来源去重合并。
+     */
+    suspend fun parseMultiple(uris: List<Uri>, onProgress: (Float) -> Unit = {}): Result<ParseResult> =
+        withContext(Dispatchers.IO) {
+            val allLines = LinkedHashMap<String, ImportLine>()
+            val allErrors = mutableListOf<ImportError>()
+            var lastFormat = ""
+            uris.forEachIndexed { idx, uri ->
+                val r = parse(uri) { pct -> onProgress((idx + pct) / uris.size) }
+                r.onSuccess { pr ->
+                    pr.lines.forEach { il ->
+                        // 同名线路（同一条线路拆成多个文件）才合并；
+                        // 合并时保留各自文件里的原始编号，不重新排号
+                        val existing = allLines[il.name]
+                        if (existing != null) {
+                            existing.towers.addAll(il.towers)
+                            if (existing.lineCoords.isEmpty()) existing.lineCoords.addAll(il.lineCoords)
+                        } else {
+                            allLines[il.name] = il
+                        }
+                    }
+                    allErrors.addAll(pr.errors)
+                    if (pr.format.isNotBlank()) lastFormat = pr.format
+                }.onFailure { allErrors.add(ImportError(-1, "文件 $idx 解析失败：${it.message}")) }
+            }
+            val list = allLines.values.toList()
+            val (valid, verr) = ImportValidator.validate(list, allowDuplicateNumbers = true)
+            allErrors.addAll(verr)
+            Result.success(ParseResult(valid, allErrors, ImportValidator.detectSameTower(valid), lastFormat.ifBlank { "multi" }))
+        }
+
     // ==================================================================
     // KML
     // ==================================================================
     /**
-     * KML 解析：
-     * - <Placemark> 的 <name>/<description> 映射线路名 / 杆塔号 / 备注
-     * - <LineString> -> 线路几何
-     * - <Point> -> 杆塔
+     * KML 解析委托给 [KmlParser]（独立 object，便于单元测试）。
      */
-    suspend fun parseKml(xml: String, onProgress: (Float) -> Unit = {}): ParseResult {
-        val lines = LinkedHashMap<String, ImportLine>()
-        val errors = mutableListOf<ImportError>()
-        var placemarkName = ""
-        var placemarkDesc = ""
-        var currentVoltage: Int? = null
-        var geomType: String? = null
-        val coordsBuffer = StringBuilder()
-        var seq = 0
-
-        try {
-            val parser = Xml.newPullParser()
-            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-            parser.setInput(ByteArrayInputStream(xml.toByteArray()), "UTF-8")
-            var event = parser.eventType
-            while (event != XmlPullParser.END_DOCUMENT) {
-                when (event) {
-                    XmlPullParser.START_TAG -> {
-                        when (parser.name.lowercase()) {
-                            "placemark" -> {
-                                placemarkName = ""
-                                placemarkDesc = ""
-                                currentVoltage = null
-                            }
-                            "lineString" -> { geomType = "line"; coordsBuffer.clear() }
-                            "point" -> { geomType = "point"; coordsBuffer.clear() }
-                            "polygon" -> { geomType = "polygon"; coordsBuffer.clear() }
-                            "name" -> if (parser.nextText().isNotBlank()) placemarkName = parser.text.trim()
-                            "description" -> placemarkDesc = parser.nextText().trim()
-                            "coordinates" -> {
-                                coordsBuffer.append(parser.nextText().trim())
-                                handleGeometry(
-                                    geomType, coordsBuffer.toString(), placemarkName, placemarkDesc,
-                                    currentVoltage, lines, errors, ++seq
-                                )
-                                geomType = null
-                            }
-                        }
-                        // ExtendedData 中的 voltage
-                        if (parser.name.equals("Data", true)) {
-                            val k = parser.getAttributeValue(null, "name")
-                            if (k != null && (k.contains("电压") || k.equals("voltage", true))) {
-                                val p2 = parser
-                                // 继续读 value 子标签
-                                var e2 = p2.next()
-                                while (e2 != XmlPullParser.END_TAG || p2.name != "Data") {
-                                    if (e2 == XmlPullParser.START_TAG && p2.name.equals("value", true)) {
-                                        currentVoltage = com.kunming.powerline.util.VoltagePalette
-                                            .parseLevel(p2.nextText())
-                                    }
-                                    e2 = p2.next()
-                                }
-                            }
-                        }
-                    }
-                    XmlPullParser.END_TAG -> {
-                        if (parser.name.equals("Placemark", true)) {
-                            // 如果 placemark 内没有几何但 name 有值，忽略
-                        }
-                    }
-                }
-                event = parser.next()
-            }
-            onProgress(1f)
-        } catch (t: Throwable) {
-            errors.add(ImportError(-1, "KML 解析异常：${t.message}"))
-        }
-
-        val list = lines.values.toList()
-        val (valid, verr) = ImportValidator.validate(list)
-        errors.addAll(verr)
-        return ParseResult(valid, errors, ImportValidator.detectSameTower(valid), "kml")
-    }
-
-    private fun handleGeometry(
-        type: String?,
-        coords: String,
-        name: String,
-        desc: String,
-        voltage: Int?,
-        lines: MutableMap<String, ImportLine>,
-        errors: MutableList<ImportError>,
-        seq: Int
-    ) {
-        val pts = parseCoordString(coords)
-        if (pts.isEmpty()) return
-        when (type) {
-            "point" -> {
-                val (lon, lat) = pts.first()
-                val lineName = extractLineName(name, desc)
-                val line = lines.getOrPut(lineName) {
-                    ImportLine(
-                        name = lineName,
-                        voltageLevel = voltage ?: com.kunming.powerline.util.VoltagePalette.parseLevel(lineName) ?: 110
-                    )
-                }
-                val towerNo = extractTowerNo(name, desc) ?: "T${line.towers.size + 1}"
-                line.towers.add(
-                    ImportTower(
-                        towerNumber = towerNo,
-                        lon = lon, lat = lat, remark = desc.ifBlank { null }, sourceRow = seq
-                    )
-                )
-            }
-            "line", "polygon" -> {
-                val lineName = extractLineName(name, desc)
-                val line = lines.getOrPut(lineName) {
-                    ImportLine(
-                        name = lineName,
-                        voltageLevel = voltage ?: com.kunming.powerline.util.VoltagePalette.parseLevel(lineName) ?: 110
-                    )
-                }
-                if (line.lineCoords.isEmpty()) {
-                    line.lineCoords.addAll(pts)
-                    // 线转杆塔（若没有 Point）
-                    if (line.towers.isEmpty()) {
-                        pts.forEachIndexed { i, p ->
-                            line.towers.add(
-                                ImportTower(
-                                    towerNumber = "P${i + 1}",
-                                    lon = p.first, lat = p.second, sourceRow = seq
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun extractLineName(name: String, desc: String): String {
-        // 常见命名："220kV某某线 12号塔"
-        val text = name.ifBlank { desc }
-        val m = Regex("""^(.*?\d+\s*(?:kV|KV|kv|千伏)?.*?线)""").find(text)
-        if (m != null) return m.groupValues[1].trim()
-        return if (text.length > 24) text.take(24) else text.ifBlank { "未命名线路" }
-    }
-
-    private fun extractTowerNo(name: String, desc: String): String? {
-        val text = "$name $desc"
-        val patterns = listOf(
-            Regex("""(\d+)\s*号(?:杆|塔)"""),
-            Regex("""(?:#|N|T|塔|杆)\s*(\d+[A-Za-z0-9\-]*)"""),
-            Regex("""^\s*(\d+[A-Za-z0-9\-]*)\s*$""")
-        )
-        patterns.forEach { p ->
-            p.find(text)?.let { m -> return m.groupValues[1] }
-        }
-        return null
-    }
-
-    private fun parseCoordString(s: String): List<Pair<Double, Double>> {
-        val out = mutableListOf<Pair<Double, Double>>()
-        // KML: lon,lat[,alt] 空格分隔
-        s.trim().split(Regex("""\s+""")).forEach { t ->
-            val parts = t.split(',')
-            if (parts.size >= 2) {
-                val lon = parts[0].toDoubleOrNull()
-                val lat = parts[1].toDoubleOrNull()
-                if (lon != null && lat != null) out.add(lon to lat)
-            }
-        }
-        return out
-    }
+    suspend fun parseKml(xml: String, onProgress: (Float) -> Unit = {}, fileName: String = ""): ParseResult =
+        KmlParser.parse(xml, onProgress, fileName)
 
     // ==================================================================
     // KMZ
     // ==================================================================
-    private suspend fun parseKmz(bytes: ByteArray, onProgress: (Float) -> Unit): ParseResult {
+    private suspend fun parseKmz(bytes: ByteArray, onProgress: (Float) -> Unit, fileName: String = ""): ParseResult {
         var kml: String? = null
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
             var entry = zis.nextEntry
@@ -252,7 +157,7 @@ class GeoFileParser @Inject constructor(
             }
         }
         return if (kml != null) {
-            val r = parseKml(kml!!, onProgress)
+            val r = parseKml(kml!!, onProgress, fileName)
             r.copy(format = "kml")
         } else {
             ParseResult(emptyList(), listOf(ImportError(-1, "KMZ 中没有找到 .kml 文件")), emptyList(), "kml")
@@ -360,7 +265,7 @@ class GeoFileParser @Inject constructor(
             errors.add(ImportError(-1, "GPX 解析异常：${t.message}"))
         }
 
-        val (valid, verr) = ImportValidator.validate(lines.values.toList())
+        val (valid, verr) = ImportValidator.validate(lines.values.toList(), allowDuplicateNumbers = true)
         errors.addAll(verr)
         return ParseResult(valid, errors, emptyList(), "gpx")
     }
@@ -385,7 +290,7 @@ class GeoFileParser @Inject constructor(
                 val geom = f.optJSONObject("geometry") ?: continue
                 val name = props.optString("name").ifBlank { props.optString("NAME").ifBlank { "未命名线路" } }
                 val voltageStr = props.optString("voltage").ifBlank { props.optString("VOLTAGE") }
-                val voltage = com.kunming.powerline.util.VoltagePalette.parseLevel(voltageStr.ifBlank { name }) ?: 110
+                val voltage = VoltagePalette.parseLevel(voltageStr.ifBlank { name }) ?: 110
                 val towerNo = props.optString("tower_number")
                     .ifBlank { props.optString("tower").ifBlank { props.optString("杆塔号") } }
 
@@ -438,7 +343,7 @@ class GeoFileParser @Inject constructor(
         } catch (t: Throwable) {
             errors.add(ImportError(-1, "GeoJSON 解析异常：${t.message}"))
         }
-        val (valid, verr) = ImportValidator.validate(lines.values.toList())
+        val (valid, verr) = ImportValidator.validate(lines.values.toList(), allowDuplicateNumbers = true)
         errors.addAll(verr)
         return ParseResult(valid, errors, emptyList(), "geojson")
     }
@@ -481,6 +386,151 @@ class GeoFileParser @Inject constructor(
         return ShapefileReader.read(shp!!, dbf, prj, onProgress)
     }
 
+    // ==================================================================
+    // 专题图层（点 / 线 / 面，通用导入）
+    // ==================================================================
+    /**
+     * 把地理信息文件解析成"专题图层"：保留原始点、线、面，不再解释成线路+杆塔。
+     */
+    suspend fun parseThematic(uri: Uri): Result<ThematicParseResult> = withContext(Dispatchers.IO) {
+        try {
+            val fileName = queryName(uri) ?: ""
+            val lower = fileName.lowercase()
+            val baseName = fileName.substringBeforeLast('.')
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return@withContext Result.failure(Exception("无法读取文件"))
+
+            val result = when {
+                lower.endsWith(".shp") -> {
+                    ShapefileThematicReader.read(bytes, null, null, baseName)
+                }
+                lower.endsWith(".zip") -> {
+                    val parts = unzipShapefile(bytes)
+                    if (parts.shp == null) {
+                        ThematicParseResult(
+                            emptyList(),
+                            listOf(ImportError(-1, "压缩包中未找到 .shp 文件（请把 .shp/.dbf/.prj 一起打包）")),
+                            emptyList(), "shp"
+                        )
+                    } else {
+                        ShapefileThematicReader.read(
+                            parts.shp, parts.dbf, parts.prj,
+                            baseName.ifBlank { parts.name },
+                            { }
+                        )
+                    }
+                }
+                lower.endsWith(".kmz") -> {
+                    val kml = unzipKml(bytes)
+                    if (kml == null) {
+                        ThematicParseResult(
+                            emptyList(), listOf(ImportError(-1, "KMZ 中没有找到 .kml 文件")),
+                            emptyList(), "kml"
+                        )
+                    } else ThematicParser.parseKml(kml, baseName)
+                }
+                lower.endsWith(".kml") -> ThematicParser.parseKml(String(bytes, Charsets.UTF_8), baseName)
+                lower.endsWith(".gpx") -> ThematicParser.parseGpx(String(bytes, Charsets.UTF_8), baseName)
+                lower.endsWith(".geojson") || lower.endsWith(".json") ->
+                    ThematicParser.parseGeoJson(String(bytes, Charsets.UTF_8), baseName)
+                else -> {
+                    val head = String(bytes, 0, minOf(400, bytes.size), Charsets.UTF_8).trim()
+                    when {
+                        head.startsWith("{") -> ThematicParser.parseGeoJson(String(bytes, Charsets.UTF_8), baseName)
+                        head.contains("<kml", true) -> ThematicParser.parseKml(String(bytes, Charsets.UTF_8), baseName)
+                        head.contains("<gpx", true) -> ThematicParser.parseGpx(String(bytes, Charsets.UTF_8), baseName)
+                        bytes.size > 100 && isShapefile(bytes) ->
+                            ShapefileThematicReader.read(bytes, null, null, baseName)
+                        bytes.size > 4 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() -> {
+                            // PK 头：可能是打包的 shp
+                            val parts = unzipShapefile(bytes)
+                            if (parts.shp != null) {
+                                ShapefileThematicReader.read(parts.shp, parts.dbf, parts.prj, baseName.ifBlank { parts.name })
+                            } else {
+                                return@withContext Result.failure(Exception("压缩包中没有找到 .shp 文件：$fileName"))
+                            }
+                        }
+                        else -> return@withContext Result.failure(Exception("该格式暂不支持导入专题图层：$fileName"))
+                    }
+                }
+            }
+            Result.success(result)
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    /** 批量导入专题图层：多个文件各自成层 */
+    suspend fun parseThematicMultiple(
+        uris: List<Uri>,
+        onProgress: (Float) -> Unit = {}
+    ): Result<ThematicParseResult> = withContext(Dispatchers.IO) {
+        val layers = mutableListOf<ImportLayer>()
+        val errors = mutableListOf<ImportError>()
+        val warnings = mutableListOf<String>()
+        var format = ""
+        uris.forEachIndexed { idx, uri ->
+            onProgress(idx.toFloat() / uris.size.coerceAtLeast(1))
+            parseThematic(uri).onSuccess { r ->
+                layers.addAll(r.layers)
+                errors.addAll(r.errors)
+                warnings.addAll(r.warnings)
+                if (r.format.isNotBlank()) format = r.format
+            }.onFailure { errors.add(ImportError(-1, "文件 ${idx + 1} 解析失败：${it.message}")) }
+        }
+        onProgress(1f)
+        Result.success(ThematicParseResult(layers, errors, warnings, format.ifBlank { "multi" }))
+    }
+
+    private data class ShpParts(
+        val shp: ByteArray?,
+        val dbf: ByteArray?,
+        val prj: String?,
+        val name: String
+    )
+
+    /** 从 zip 中取出 shp / dbf / prj（同名前缀的第一组） */
+    private fun unzipShapefile(bytes: ByteArray): ShpParts {
+        var shp: ByteArray? = null
+        var dbf: ByteArray? = null
+        var prj: String? = null
+        var name = ""
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+            var e = zis.nextEntry
+            while (e != null) {
+                when {
+                    e.name.endsWith(".shp", true) && shp == null -> {
+                        shp = zis.readBytes()
+                        name = e.name.substringBeforeLast('/').substringAfterLast('/')
+                            .substringBeforeLast('.')
+                    }
+                    e.name.endsWith(".dbf", true) && dbf == null -> dbf = zis.readBytes()
+                    e.name.endsWith(".prj", true) && prj == null -> prj = zis.readBytes().toString(Charsets.UTF_8)
+                }
+                e = zis.nextEntry
+            }
+        }
+        return ShpParts(shp, dbf, prj, name)
+    }
+
+    /** shapefile 文件码固定 9994（大端），用于内容嗅探 */
+    fun isShapefile(bytes: ByteArray): Boolean =
+        bytes.size > 100 && bytes[0] == 0x00.toByte() && bytes[1] == 0x00.toByte() &&
+            bytes[2] == 0x27.toByte() && bytes[3] == 0x0A.toByte()
+
+    private fun unzipKml(bytes: ByteArray): String? {
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (entry.name.endsWith(".kml", true)) {
+                    return zis.readBytes().toString(Charsets.UTF_8)
+                }
+                entry = zis.nextEntry
+            }
+        }
+        return null
+    }
+
     private fun queryName(uri: Uri): String? {
         return try {
             context.contentResolver.query(uri, null, null, null, null)?.use { c ->
@@ -492,7 +542,6 @@ class GeoFileParser @Inject constructor(
         }
     }
 }
-
 /**
  * 轻量 Shapefile 读取器（不依赖 GeoTools）
  * - 支持 Point / PolyLine(Polyline) / Polygon 主类型
@@ -506,14 +555,15 @@ object ShapefileReader {
         val lines = LinkedHashMap<String, ImportLine>()
         try {
             val din = DataInputStream(ByteArrayInputStream(shp))
-            din.skipBytes(24) // 文件头 100 字节，读 24 后取 shapeType
+            // 文件头 100 字节：跳过文件码与未用字段，取 offset 32 处的几何类型（小端）
+            din.skipBytes(28)
             val shpType = Integer.reverseBytes(din.readInt())
-            din.skipBytes(100 - 28)
+            din.skipBytes(100 - 32)
 
             val records = mutableListOf<Pair<Int, List<Pair<Double, Double>>>>()
             while (din.available() >= 8) {
-                /* val recNo = */ Integer.reverseBytes(din.readInt())
-                val contentLen = Integer.reverseBytes(din.readInt()) * 2
+                /* val recNo = */ din.readInt()          // 大端
+                val contentLen = din.readInt() * 2       // 大端，单位为 16 位字
                 if (contentLen <= 0 || din.available() < contentLen) break
                 val content = ByteArray(contentLen)
                 din.readFully(content)
@@ -557,7 +607,7 @@ object ShapefileReader {
                 if (i % 200 == 0) onProgress(i.toFloat() / records.size.coerceAtLeast(1))
                 val a = attrs.getOrNull(i) ?: emptyMap()
                 val name = pick(a, "name", "NAME", "线路名称", "线路名", "LINE_NAME") ?: "SHP 图层 ${i + 1}"
-                val voltage = com.kunming.powerline.util.VoltagePalette.parseLevel(
+                val voltage = VoltagePalette.parseLevel(
                     pick(a, "voltage", "VOLTAGE", "电压等级", "电压") ?: name
                 ) ?: 110
                 val towerNo = pick(a, "tower_number", "TOWER_NO", "杆塔号", "杆号")
@@ -587,7 +637,7 @@ object ShapefileReader {
         } catch (t: Throwable) {
             errors.add(ImportError(-1, "Shapefile 解析异常：${t.message}"))
         }
-        val (valid, verr) = ImportValidator.validate(lines.values.toList())
+        val (valid, verr) = ImportValidator.validate(lines.values.toList(), allowDuplicateNumbers = true)
         errors.addAll(verr)
         return ParseResult(valid, errors, emptyList(), "shp")
     }
@@ -662,18 +712,19 @@ object DbfReader {
         val recordLen = java.lang.Short.reverseBytes(din.readShort()).toInt()
         din.skipBytes(20)
 
+        // 字段描述区：每项 32 字节 = 名称(11) + 类型(1) + 偏移(4) + 长度(1) + 小数位(1) + 保留(14)
+        // 以单个 0x0D 结束（不是完整的 32 字节），所以必须逐项按 32 字节对齐读取
         val fields = mutableListOf<Triple<String, Char, Int>>()
-        var b = din.read()
-        while (b != 0x0D && din.available() > 0) {
+        while (din.available() >= 32) {
             val nameBytes = ByteArray(11)
             din.readFully(nameBytes)
+            if (nameBytes[0] == 0x0D.toByte()) break
             val name = String(nameBytes, Charsets.ISO_8859_1).trim('\u0000', ' ')
             val type = din.read().toChar()
             din.skipBytes(4)
             val len = din.read().toInt() and 0xFF
             din.skipBytes(15)
-            fields.add(Triple(name, type, len))
-            b = din.read()
+            if (name.isNotBlank() && len > 0) fields.add(Triple(name, type, len))
         }
 
         val out = mutableListOf<Map<String, String>>()

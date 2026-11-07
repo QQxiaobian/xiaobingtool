@@ -17,14 +17,42 @@ import com.kunming.powerline.ui.MapViewModel
 fun ImportFlow(
     vm: MapViewModel,
     onExit: () -> Unit,
-    onToast: (String) -> Unit
+    onToast: (String) -> Unit,
+    onFocus: (Double, Double, Double) -> Unit = { _, _, _ -> }
 ) {
-    // home / template / create / towerDisplay / excel / pms / geo / delete / batches
+    // home / template / create / towerDisplay / excel / pms / geo / delete / batches / lines / thematic
     var route by remember { mutableStateOf("home") }
+    // 从"专题图层"页进入导入时，默认选中专题模式
+    var geoStartThematic by remember { mutableStateOf(false) }
     val backToHome = { route = "home" }
 
     when (route) {
         "home" -> ImportHomeScreen(onBack = onExit, onPick = { route = it })
+
+        // 线路列表 / 管理编辑（与地图图层入口共用同一页面）
+        "lines" -> com.kunming.powerline.ui.layermanage.LineListScreen(
+            vm = vm,
+            onBack = backToHome,
+            onToast = onToast,
+            onFocus = onFocus,
+            onOpenImport = backToHome
+        )
+
+        // 专题图层管理（巡视点 / 区域范围 / 通道等）
+        "thematic" -> com.kunming.powerline.ui.layermanage.ThematicLayerScreen(
+            vm = vm,
+            onBack = backToHome,
+            onToast = onToast,
+            onFocus = onFocus,
+            onImport = {
+                geoStartThematic = true
+                route = "geo"
+            },
+            onDeleteAll = {
+                vm.deleteAllThematic()
+                onToast("已清空全部专题图层")
+            }
+        )
 
         "template" -> TemplateScreen(generator = vm.templateGenerator, onBack = backToHome)
 
@@ -61,8 +89,15 @@ fun ImportFlow(
         "geo" -> GeoImportScreen(
             parser = vm.geoParser,
             onBack = backToHome,
+            startThematic = geoStartThematic,
             onImported = { result, source ->
                 onToast(vm.saveImportSync(result, "geo", source))
+                geoStartThematic = false
+                backToHome()
+            },
+            onImportedThematic = { result, _, fileName ->
+                onToast(vm.importThematicSync(result, fileName))
+                geoStartThematic = false
                 backToHome()
             }
         )

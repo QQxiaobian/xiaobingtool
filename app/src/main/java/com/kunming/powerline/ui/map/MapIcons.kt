@@ -202,9 +202,72 @@ object MapIcons {
         val c = Canvas(bmp)
         val w = sizePx.toFloat()
         c.drawCircle(w / 2f, w / 2f, w * 0.34f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = w * 0.10f; this.color = color
+            style = Paint.Style.STROKE; strokeWidth = w * 0.16f; this.color = color
         })
         c.drawCircle(w / 2f, w / 2f, w * 0.08f, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
+        return bmp
+    }
+
+    /**
+     * 方向箭头：预渲染成 N 个固定角度的位图（白填充 + 深蓝描边）
+     *
+     * 不使用 icon-rotate 表达式，改为按方位角挑选对应角度的图标，
+     * 由 iconImage(Expression.get("icon")) 驱动，兼容性与杆塔图标一致，
+     * 避免某些设备上 rotate 表达式不生效、箭头一直指向正北的问题。
+     */
+    fun headingIcons(sizePx: Int = 96, stepDeg: Int = 10): List<Pair<String, Bitmap>> {
+        val out = ArrayList<Pair<String, Bitmap>>(360 / stepDeg)
+        var deg = 0
+        while (deg < 360) {
+            out.add(headingIconName(deg.toFloat()) to headingIcon(deg, sizePx))
+            deg += stepDeg
+        }
+        return out
+    }
+
+    /** 方位角 -> 预渲染图标名（就近取整到 stepDeg） */
+    fun headingIconName(deg: Float, stepDeg: Int = 10): String {
+        val n = 360 / stepDeg
+        val d = ((deg % 360f) + 360f) % 360f
+        val idx = ((d / stepDeg) + 0.5f).toInt() % n
+        return "icon-heading-${idx * stepDeg}"
+    }
+
+    /**
+     * 单个角度的方向箭头（0° = 箭头朝上 = 正北，顺时针）
+     */
+    fun headingIcon(bearingDeg: Int, sizePx: Int = 96): Bitmap {
+        val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val w = sizePx.toFloat()
+        val path = Path().apply {
+            moveTo(w * 0.50f, w * 0.14f)          // 尖端（指向行进方向）
+            lineTo(w * 0.82f, w * 0.86f)         // 右后
+            lineTo(w * 0.50f, w * 0.68f)         // 底部凹口
+            lineTo(w * 0.18f, w * 0.86f)         // 左后
+            close()
+        }
+        c.save()
+        c.rotate(bearingDeg.toFloat(), w / 2f, w / 2f)
+        // 由外到内三层：深蓝细边 -> 白色宽边 -> 蓝色填充
+        // 深蓝细边保证浅色底图上也有轮廓，白边保证卫星图上不发黑
+        c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.parseColor("#0D47A1")
+            style = Paint.Style.STROKE
+            strokeWidth = w * 0.22f
+            strokeJoin = Paint.Join.ROUND
+        })
+        c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = w * 0.16f
+            strokeJoin = Paint.Join.ROUND
+        })
+        c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.parseColor("#1E88E5")
+            style = Paint.Style.FILL
+        })
+        c.restore()
         return bmp
     }
 }
