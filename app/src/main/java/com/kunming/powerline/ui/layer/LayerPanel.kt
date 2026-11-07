@@ -30,9 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kunming.powerline.ui.theme.HintGray
+import com.kunming.powerline.ui.theme.PanelBg
+import com.kunming.powerline.ui.theme.PanelLine
+import com.kunming.powerline.ui.theme.PanelText
+import com.kunming.powerline.ui.theme.PanelTextSub
 import com.kunming.powerline.ui.theme.PowerRed
-import com.kunming.powerline.ui.theme.PowerRedLight
 import com.kunming.powerline.util.VoltagePaletteUi
 
 /**
@@ -50,7 +52,7 @@ fun LayerPanel(
         Box(
             Modifier
                 .fillMaxWidth(0.86f)
-                .background(Color(0xF212161B), RoundedCornerShape(0.dp, 18.dp, 18.dp, 0.dp))
+                .background(PanelBg, RoundedCornerShape(0.dp, 18.dp, 18.dp, 0.dp))
         ) {
             Column(Modifier.padding(vertical = 12.dp)) {
                 Row(
@@ -58,23 +60,26 @@ fun LayerPanel(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "专题图层", color = Color.White, fontSize = 18.sp,
+                        "专题图层", color = PanelText, fontSize = 18.sp,
                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
                     )
                     Box(
                         Modifier.size(30.dp).clip(RoundedCornerShape(15.dp))
-                            .background(Color(0x33FFFFFF)).clickable { onDismiss() },
+                            .background(Color(0x14000000)).clickable { onDismiss() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                        Icon(
+                            Icons.Default.Close, null, tint = PanelTextSub,
+                            modifier = Modifier.size(17.dp)
+                        )
                     }
                 }
                 Text(
                     "开启后在地图上显示对应专题要素",
-                    color = HintGray, fontSize = 12.sp,
+                    color = PanelTextSub, fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
-                Divider(color = Color(0x22FFFFFF), thickness = 1.dp)
+                Divider(color = PanelLine, thickness = 1.dp)
                 LazyColumn(Modifier.weight(1f, fill = false)) {
                     items(MapLayer.entries) { layer ->
                         val on = layerState[layer.id] ?: layer.defaultOn
@@ -87,36 +92,39 @@ fun LayerPanel(
                         ) {
                             Icon(
                                 layer.icon, null,
-                                tint = if (on) PowerRedLight else Color(0xFFB0B6BE),
+                                tint = if (on) PowerRed else Color(0xFFA79C90),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(layer.title, color = Color.White, fontSize = 14.sp)
+                                Text(layer.title, color = PanelText, fontSize = 14.sp)
                                 Text(
-                                    layer.manageHint, color = HintGray, fontSize = 10.sp,
+                                    layer.manageHint, color = PanelTextSub, fontSize = 10.sp,
                                     maxLines = 1
                                 )
                             }
                             Box(
                                 Modifier
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0x22FFFFFF))
+                                    .background(Color(0xFFEFE7DA))
                                     .clickable { onManage(layer) }
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("管理", color = Color(0xFFD6DCE4), fontSize = 11.sp)
+                                    Text("管理", color = PanelTextSub, fontSize = 11.sp)
                                     Icon(
                                         Icons.Default.ChevronRight, null,
-                                        tint = Color(0xFFD6DCE4), modifier = Modifier.size(14.dp)
+                                        tint = PanelTextSub, modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
                             Spacer(Modifier.width(10.dp))
                             RedSwitch(checked = on) { onToggle(layer) }
                         }
-                        Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp, modifier = Modifier.padding(start = 16.dp))
+                        Divider(
+                            color = PanelLine, thickness = 0.6.dp,
+                            modifier = Modifier.padding(start = 16.dp)
+                        )
                     }
                 }
             }
@@ -137,11 +145,11 @@ fun VoltageLegend(
     AnimatedVisibility(visible) {
         Column(
             modifier
-                .background(Color(0xB312161B), RoundedCornerShape(10.dp))
+                .background(Color(0xE6FDF7EE), RoundedCornerShape(10.dp))
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Text("电压等级", color = Color(0xCCFFFFFF), fontSize = 10.sp)
+            Text("电压等级", color = PanelTextSub, fontSize = 10.sp)
             VoltagePaletteUi.styles.forEach { s ->
                 val on = filter.contains(s.level)
                 Row(
@@ -152,12 +160,12 @@ fun VoltageLegend(
                         Modifier
                             .width(22.dp)
                             .height(s.widthDp.dp.coerceAtMost(6.dp))
-                            .background(if (on) s.color else Color(0x55FFFFFF), RoundedCornerShape(3.dp))
+                            .background(if (on) s.color else Color(0x33000000), RoundedCornerShape(3.dp))
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         s.label,
-                        color = if (on) Color.White else Color(0x66FFFFFF),
+                        color = if (on) PanelText else Color(0x661C1B1B),
                         fontSize = 10.sp
                     )
                 }
@@ -182,9 +190,9 @@ fun RedSwitch(
             .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
-                    !enabled -> Color(0x33FFFFFF)
+                    !enabled -> Color(0xFFE2D9CC)
                     checked -> PowerRed
-                    else -> Color(0x44FFFFFF)
+                    else -> Color(0xFFD6CBBB)
                 }
             )
             .clickable(enabled = enabled) { onCheckedChange(!checked) }

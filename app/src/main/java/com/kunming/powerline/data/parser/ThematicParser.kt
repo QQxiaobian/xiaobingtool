@@ -71,6 +71,39 @@ object ThematicParser {
         }?.value?.trim().orEmpty()
     }
 
+    /**
+     * 名称缺失时从备注里取首段。
+     *
+     * 行政区划 / 规划图转换出来的 KML 常出现 `<name>` 空、只有 `<description>` 的情况，
+     * 这类数据入库后整层没有名称，地图上就是一片没有标注的色块。这里把备注的第一个
+     * 短句（逗号、顿号、句号等分隔）当作名称，超过 24 字、纯数字、URL 则放弃，
+     * 避免把一整段介绍塞进名称字段。
+     */
+    internal fun nameFromDesc(desc: String): String {
+        val raw = desc.replace(Regex("<[^>]+>"), " ").replace("&nbsp;", " ")
+        // 多行备注取第一行，再压平空白
+        val text = raw.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            .orEmpty()
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (text.isEmpty()) return ""
+        if (text.startsWith("http", ignoreCase = true)) return ""
+        // 整段都是介绍性文字时不当名称（地图上仍会显示前 12 字，但名称字段保持干净）
+        if (text.length > 40) return ""
+        val seg = text
+            .split('，', ',', '；', ';', '|', '、', '：', ':', '。')
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?.trim('.', '·', '-')
+            .orEmpty()
+        val cand = seg.ifBlank { text }
+        if (cand.isEmpty() || cand.length > 24) return ""
+        if (cand.all { it.isDigit() || it == '.' || it == '-' || it == ' ' }) return ""
+        return cand
+    }
+
     // ------------------------------------------------------------------
     // KML
     // ------------------------------------------------------------------
@@ -218,23 +251,25 @@ object ThematicParser {
     private fun toFeature(r: RawFeature): ImportFeature? {
         val c = r.coords
         if (c.isEmpty()) return null
+        // 名称缺失时从备注首段兜底，保证行政区划这类「有备注、无名称」的数据也能标注
+        val displayName = r.name.trim().ifBlank { nameFromDesc(r.desc) }
         return when (r.kind) {
             "point" -> ImportFeature(
-                name = r.name.ifBlank { null },
+                name = displayName.ifBlank { null },
                 kind = "point",
                 geometryJson = pointJson(c.first()),
                 lon = c.first().first, lat = c.first().second,
                 properties = props(r)
             )
             "polygon" -> ImportFeature(
-                name = r.name.ifBlank { null },
+                name = displayName.ifBlank { null },
                 kind = "polygon",
                 geometryJson = polygonJson(closeRing(c)),
                 lon = centroid(c).first, lat = centroid(c).second,
                 properties = props(r)
             )
             else -> ImportFeature(
-                name = r.name.ifBlank { null },
+                name = displayName.ifBlank { null },
                 kind = "line",
                 geometryJson = lineJson(c),
                 lon = c.first().first, lat = c.first().second,
@@ -280,8 +315,14 @@ object ThematicParser {
                 val f = arr.optJSONObject(i) ?: continue
                 val props = f.optJSONObject("properties") ?: JSONObject()
                 // 名称键五花八门：name / NAME / 名称 / NAME_CHN / title ……
+                // 都没有时退回 description / 备注的首段，避免整层无标注
                 val propsMap = props.keys().asSequence().associateWith { props.optString(it) }
-                val name = nameFromAttrs(propsMap).ifBlank { null }
+                val descText = listOf("description", "desc", "remark", "备注", "说明", "描述")
+                    .firstNotNullOfOrNull { k -> propsMap.entries.firstOrNull { it.key.equals(k, true) }?.value }
+                    .orEmpty()
+                val name = nameFromAttrs(propsMap)
+                    .ifBlank { nameFromDesc(descText) }
+                    .ifBlank { null }
                 val geom = f.optJSONObject("geometry") ?: continue
                 features.addAll(expandGeometry(geom, name, props))
             }

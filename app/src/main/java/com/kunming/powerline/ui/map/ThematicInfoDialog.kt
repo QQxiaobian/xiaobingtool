@@ -64,7 +64,9 @@ fun ThematicInfoDialog(
     }.entries.take(10)
 
     val color = layer?.let { Color(it.color) } ?: PowerRed
+    // 名称缺失时（行政区划常见）用备注首段当标题，至少能区分是哪个区域
     val title = feature.name?.takeIf { it.isNotBlank() }
+        ?: desc?.takeIf { it.isNotBlank() }?.let { if (it.length > 16) it.take(16) + "…" else it }
         ?: layer?.name?.takeIf { it.isNotBlank() }
         ?: "${kindLabel(feature.kind)} ${feature.seq + 1}"
 

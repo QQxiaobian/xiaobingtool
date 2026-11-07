@@ -26,6 +26,9 @@ object ThematicLabels {
     /** 备注最多展示的字数，超出截断，避免长描述铺满屏幕 */
     const val MAX_DESC_CHARS = 18
 
+    /** 备注当作名称时最多取几个字（行政区划常见：无 name、只有 description） */
+    const val MAX_NAME_FROM_DESC = 12
+
     /** 单层要素过多时不再用图层名兜底，否则满屏重复文字 */
     const val FALLBACK_MAX_FEATURES = 50
 
@@ -51,16 +54,29 @@ object ThematicLabels {
         featureCount: Int = 1
     ): String {
         val own = name?.trim()?.takeIf { it.isNotEmpty() }
-        val base = own ?: fallbackName(layerName, kind, featureCount) ?: return ""
-
         val fromFeature = descriptionOf(propertiesJson)
         // 图层备注只在"一层一个区域"时补位，多面图层重复显示备注会糊满屏幕
         val fromLayer = if (featureCount <= 1) layerRemark?.let { clean(it) } else null
-        val desc = (fromFeature ?: fromLayer)
-            // 备注与名称重复时不重复显示
+        val desc = fromFeature ?: fromLayer
+
+        // 名称缺省时用备注首段充当名称。
+        // 行政区划图常见「<name> 为空、只有 description」，过去直接返回空串导致整层无标注；
+        // 这里改为取备注前 12 个字作为名称，至少每个区域在地图上都有字可看。
+        val base = own
+            ?: desc?.takeIf { it.isNotBlank() }?.let { summaryOf(it) }
+            ?: fallbackName(layerName, kind, featureCount)
+            ?: return ""
+
+        // 名称本身就是备注摘要时，不再重复第二行
+        if (own == null) return base
+
+        // 备注若以名称开头（"五华区，面积…"），第二行去掉重复前缀只留后半句
+        val extra = desc
+            ?.takeIf { it.isNotBlank() }
+            ?.let { if (it.startsWith(base)) it.removePrefix(base).trimStart(' ', '，', ',', '、', '：', ':', '·', '-') else it }
             ?.takeIf { it.isNotBlank() && it != base }
-        if (desc == null) return base
-        return base + "\n" + ellipsis(desc, MAX_DESC_CHARS)
+        if (extra == null) return base
+        return base + "\n" + ellipsis(extra, MAX_DESC_CHARS)
     }
 
     /**
@@ -73,6 +89,20 @@ object ThematicLabels {
         if (kind != "polygon") return null
         if (featureCount > 1) return null
         return layerName?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * 备注摘要：按标点切出第一段，再按名称长度截断。
+     * 用于「无 name、只有 description」的数据，避免把整段介绍挂到地图上。
+     */
+    fun summaryOf(text: String): String {
+        val seg = text
+            .split('，', ',', '；', ';', '|', '、', '：', ':', '。')
+            .firstOrNull { it.isNotBlank() }
+            ?.trim()
+            ?.trim('.', '·', '-')
+            .orEmpty()
+        return ellipsis(seg.ifBlank { text }, MAX_NAME_FROM_DESC)
     }
 
     /** 从属性 JSON 里取备注类字段 */

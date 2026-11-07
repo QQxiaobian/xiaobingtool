@@ -52,12 +52,13 @@ class ThematicAreaLabelTest {
         assertTrue("应按 Folder 生成区域图层，实际=${r.layers.map { it.name }}", area != null)
         assertEquals("polygon", area!!.geometryType)
         assertEquals(1, area.features.size)
-        assertEquals(null, area.features[0].name)
+        // 无 <name> 但有 <description>：用备注首段当名称，避免整层无标注
+        assertEquals("雨季易滑坡", area.features[0].name)
         assertEquals("polygon", area.features[0].kind)
     }
 
     @Test
-    fun `无名字的区域能用图层名合成标注`() {
+    fun `无名字的区域用备注合成标注`() {
         val r = ThematicParser.parseKml(areaKml, "专项巡视.kml")
         val layer = r.layers.first { it.name == "重点区域范围" }
         val f = layer.features[0]
@@ -70,7 +71,37 @@ class ThematicAreaLabelTest {
             featureCount = layer.features.size
         )
         assertTrue("区域标注不能为空，实际=[$label]", label.isNotEmpty())
-        assertEquals("重点区域范围\n雨季易滑坡，需重点巡查", label)
+        // 名称行是备注首段，第二行去掉重复前缀只留后半句
+        assertEquals("雨季易滑坡\n需重点巡查", label)
+    }
+
+    @Test
+    fun `既无名称也无备注的区域用图层名兜底`() {
+        val kml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <kml><Document><name>专项巡视</name>
+              <Folder><name>重点区域范围</name>
+                <Placemark>
+                  <Polygon><outerBoundaryIs><LinearRing>
+                    <coordinates>102.70,25.04 102.72,25.04 102.72,25.06 102.70,25.04</coordinates>
+                  </LinearRing></outerBoundaryIs></Polygon>
+                </Placemark>
+              </Folder>
+            </Document></kml>
+        """.trimIndent()
+        val r = ThematicParser.parseKml(kml, "专项巡视.kml")
+        val layer = r.layers.first { it.name == "重点区域范围" }
+        val f = layer.features[0]
+        assertEquals(null, f.name)
+        val label = ThematicLabels.compose(
+            name = f.name,
+            propertiesJson = propsJson(f.properties),
+            layerName = layer.name,
+            layerRemark = layer.remark,
+            kind = f.kind,
+            featureCount = layer.features.size
+        )
+        assertEquals("重点区域范围", label)
     }
 
     @Test

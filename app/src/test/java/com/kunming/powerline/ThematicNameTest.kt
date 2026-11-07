@@ -86,4 +86,60 @@ class ThematicNameTest {
         assertEquals("", ThematicParser.nameFromAttrs(mapOf("adcode" to "530102")))
     }
 
+    // ------------------------------------------------------------------
+    // 无 <name>、只有 <description> 的行政区划数据
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `KML 只有 description 时用备注首段作为名称`() {
+        val kml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <kml><Document><name>行政区划</name>
+              <Placemark>
+                <description>五华区，昆明市主城区之一，面积 381 平方公里</description>
+                <Polygon><outerBoundaryIs><LinearRing>
+                  <coordinates>102.70,25.05 102.72,25.05 102.72,25.07 102.70,25.05</coordinates>
+                </LinearRing></outerBoundaryIs></Polygon>
+              </Placemark>
+            </Document></kml>
+        """.trimIndent()
+
+        val r = ThematicParser.parseKml(kml, "区划.kml")
+        val f = r.layers.first().features.first()
+        assertEquals("五华区", f.name)
+        // 备注原文仍保留在属性里，点击信息卡可看全文
+        assertEquals(true, f.properties["description"]?.startsWith("五华区") == true)
+    }
+
+    @Test
+    fun `备注首段过长或是 URL 时不拿来当名称`() {
+        val long = "本区域位于昆明市西北部，东经 102 度，北纬 25 度，包含多个街道与社区，总面积约 381 平方公里"
+        assertEquals("", ThematicParser.nameFromDesc(long))
+        assertEquals("", ThematicParser.nameFromDesc("https://example.com/area/530102"))
+        assertEquals("", ThematicParser.nameFromDesc("530102.00"))
+        assertEquals("盘龙区", ThematicParser.nameFromDesc("盘龙区\n面积 340 平方公里"))
+    }
+
+    @Test
+    fun `图层内多要素无名称时每个面都用备注摘要做标注`() {
+        val props = """{"description":"西山区，昆明市主城西部"}"""
+        val text = com.kunming.powerline.ui.map.ThematicLabels.compose(
+            name = null,
+            propertiesJson = props,
+            layerName = "行政区划",
+            layerRemark = null,
+            kind = "polygon",
+            featureCount = 14
+        )
+        assertEquals("西山区", text)
+    }
+
+    @Test
+    fun `备注摘要按标点截断且不超过 12 字`() {
+        val t = com.kunming.powerline.ui.map.ThematicLabels.summaryOf("昆明市呈贡区人民政府驻地，海拔 1900 米")
+        assertEquals("昆明市呈贡区人民政府驻地", t)
+        val long = com.kunming.powerline.ui.map.ThematicLabels.summaryOf("一二三四五六七八九十十一十二十三")
+        assertEquals("一二三四五六七八九十十一…", long)
+    }
+
 }
