@@ -91,14 +91,25 @@ object LayerIds {
     const val LYR_THEMATIC_LABEL_DENSE = "lyr-thematic-label-dense"
 
     /**
-     * 面要素名称（行政区划 / 巡视区域）
+     * 区域名称（行政区划 / 巡视区域 / 边界线）
      *
      * 独立成层：既避免 MapLibre 在 Polygon 上放置文字不稳定的问题，
-     * 也能让区域名在更小的缩放级别（6 级起）就可见 —— 看行政区划必须在
-     * 省市级视野就能认出每个区县。
+     * 也让区域名在低缩放级别就可见（不再需要放大到 10 级）。
+     * 面用质心、线用中点生成独立点要素，名称落在区域内部。
      */
     const val SRC_AREA_LABEL = "src-area-label"
     const val LYR_AREA_LABEL = "lyr-area-label"
+    /** 密集区域名称（>120 个要素时启用碰撞避让，避免低缩放糊满屏） */
+    const val LYR_AREA_LABEL_DENSE = "lyr-area-label-dense"
+
+    /**
+     * 业务点位名称（收藏 / 起飞 / 交叉 / 视频 / 护线 / 危险）
+     *
+     * 图标始终显示，文字统一收进这一层并设 minZoom，
+     * 低缩放时不再排版几千条文字 —— 这是收藏点图层卡顿的主因。
+     */
+    const val SRC_POINT_LABEL = "src-point-label"
+    const val LYR_POINT_LABEL = "lyr-point-label"
 
     const val SRC_CUSTOM = "src-custom"
     const val LYR_CUSTOM_LINE = "lyr-custom-line"

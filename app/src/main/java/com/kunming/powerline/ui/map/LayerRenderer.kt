@@ -37,8 +37,8 @@ object LayerRenderer {
     /** 超过该要素数的专题图层，名称启用碰撞避让（防止几千条文字同时排版） */
     const val DENSE_LABEL_THRESHOLD = 120
 
-    /** 面要素超过该数量时不再逐面标注（行政区划一般几十到几百个面，远低于此值） */
-    const val POLYGON_LABEL_MAX = 800
+    /** 面/线要素超过该数量时不再逐个标注（低缩放直接显示名称，必须限流） */
+    const val AREA_LABEL_MAX = 400
 
     /**
      * 实时定位渲染：精度圈 + 方向箭头 + 蓝点
@@ -210,11 +210,9 @@ object LayerRenderer {
                 val src = Feature.fromJson(
                     """{"type":"Feature","properties":{},"geometry":${f.geometryGeojson}}"""
                 )
-                // 名称：要素名优先，面要素无名字时退回图层名；备注取属性里的 description / 备注
-                // 注意：面要素的名称**不**在本要素上渲染（MapLibre 在 Polygon 上放置文字的
-                // 行为不稳定，很多机型直接不画），改由下面的 polygonLabelFeatures 用
-                // 独立点要素承载，保证行政区划每个区县的名字都能显示。
-                val label = if (layer.labelVisible && f.kind != "polygon") {
+                // 专题点名称仍挂在要素上；面 / 线的名称统一由下面 areaLabelFeatures
+                // 生成独立点要素（低缩放直接显示，且不受名称起始缩放级影响）。
+                val label = if (layer.labelVisible && f.kind == "point") {
                     ThematicLabels.compose(
                         name = f.name,
                         propertiesJson = f.propertiesJson,
@@ -244,25 +242,27 @@ object LayerRenderer {
                 null
             }
         }
-        // ---- 面要素名称：用独立点要素承载 ----
-        // 行政区划、巡视区域这类数据每个面都有自己的名字，必须逐面显示。
-        // 面本身的 symbol 在部分机型上不渲染，这里在其质心处补一个纯文字点。
-        val polygonLabelFeatures = thematicFeatures.mapNotNull { f ->
+        // ---- 区域名称：面用质心、线用中点，统一生成独立点要素 ----
+        // 用户导入的行政区划常常是"边界线"而不是面，过去这类数据要放大到 10 级才显示名称。
+        // 现在面/线都进 SRC_AREA_LABEL（minZoom 3），打开地图即可在区域内看到名字；
+        // 超过 DENSE_LABEL_THRESHOLD 的图层自动切到碰撞避让层，避免低缩放满屏文字。
+        val areaLabelFeatures = thematicFeatures.mapNotNull { f ->
             val layer = visibleLayers[f.layerId] ?: return@mapNotNull null
-            if (!layer.labelVisible || f.kind != "polygon") return@mapNotNull null
-            if ((featureCountByLayer[f.layerId] ?: 0) > POLYGON_LABEL_MAX) return@mapNotNull null
-            val lon = f.lon ?: return@mapNotNull null
-            val lat = f.lat ?: return@mapNotNull null
+            if (!layer.labelVisible) return@mapNotNull null
+            if (f.kind != "polygon" && f.kind != "line") return@mapNotNull null
+            val count = featureCountByLayer[f.layerId] ?: 0
+            if (count > AREA_LABEL_MAX) return@mapNotNull null
+            val anchor = labelAnchor(f) ?: return@mapNotNull null
             val text = ThematicLabels.compose(
                 name = f.name,
                 propertiesJson = f.propertiesJson,
                 layerName = layer.name,
                 layerRemark = layer.remark,
                 kind = f.kind,
-                featureCount = featureCountByLayer[f.layerId] ?: 0
+                featureCount = count
             )
             if (text.isBlank()) return@mapNotNull null
-            Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+            Feature.fromGeometry(Point.fromLngLat(anchor.first, anchor.second)).apply {
                 addStringProperty("fid", f.id)
                 addStringProperty("layerId", f.layerId)
                 addStringProperty("kind", "label")
@@ -272,7 +272,7 @@ object LayerRenderer {
                 addStringProperty("color", "#" + Integer.toHexString(layer.color).takeLast(6))
                 addNumberProperty("fillOpacity", layer.fillOpacity.toDouble())
                 addNumberProperty("lineWidth", layer.lineWidth.toDouble())
-                addNumberProperty("labelDense", 0.0)
+                addNumberProperty("labelDense", if (count > DENSE_LABEL_THRESHOLD) 1.0 else 0.0)
             }
         }
 
@@ -281,12 +281,13 @@ object LayerRenderer {
         // 这时不逐个面去贴图层名（会糊满屏），而是给整个图层补一条"图层名标注"，
         // 位置取第一个有坐标的面要素质心。
         val layerLabelFeatures = visibleLayers.values.mapNotNull { layer ->
-            if (!layer.labelVisible || !layer.hasPolygon) return@mapNotNull null
+            if (!layer.labelVisible) return@mapNotNull null
+            if (!layer.hasPolygon && layer.geometryType != "line") return@mapNotNull null
             val own = thematicFeatures.filter { it.layerId == layer.id }
             if (own.isEmpty()) return@mapNotNull null
-            if (own.size > POLYGON_LABEL_MAX) return@mapNotNull null
-            // 只要有一个面能显示自己的名字（或退回图层名），就不再补整层标注
-            if (polygonLabelFeatures.any { it.getStringProperty("layerId") == layer.id }) {
+            if (own.size > AREA_LABEL_MAX) return@mapNotNull null
+            // 只要有一个面/线能显示自己的名字，就不再补整层标注
+            if (areaLabelFeatures.any { it.getStringProperty("layerId") == layer.id }) {
                 return@mapNotNull null
             }
             val anchor = own.firstOrNull { it.lon != null && it.lat != null } ?: return@mapNotNull null
@@ -324,6 +325,41 @@ object LayerRenderer {
             }
         }
 
+        // ---- 业务点位名称（收藏 / 起飞 / 交叉 / 视频 / 护线 / 危险）----
+        // 过去每个图标层都自带 textField，任何缩放级别都要排版几千条文字，
+        // 收藏点一多就明显掉帧。现在图标常显、文字统一收进 LYR_POINT_LABEL，
+        // 该层 minZoom = 12，低缩放一个字都不排版。
+        fun pointLabel(lon: Double?, lat: Double?, text: String?, color: String): Feature? {
+            val x = lon ?: return null
+            val y = lat ?: return null
+            val t = text?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            return Feature.fromGeometry(Point.fromLngLat(x, y)).apply {
+                addStringProperty("label", t)
+                addStringProperty("color", color)
+            }
+        }
+        val pointLabelFeatures = mutableListOf<Feature>()
+        if (layerOn(MapLayer.FAVORITE)) {
+            favorites.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lon, it.lat, it.name, "#8D6E00") }
+        }
+        if (layerOn(MapLayer.TAKEOFF)) {
+            takeoffs.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lon, it.lat, it.name, "#006064") }
+        }
+        if (layerOn(MapLayer.CROSSING)) {
+            crossings.mapNotNullTo(pointLabelFeatures) {
+                pointLabel(it.lon, it.lat, it.crossObject ?: it.crossType, "#BF360C")
+            }
+        }
+        if (layerOn(MapLayer.CAMERA)) {
+            cameras.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lon, it.lat, it.name, "#004D40") }
+        }
+        if (layerOn(MapLayer.GUARDIAN)) {
+            guardians.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lastLon, it.lastLat, it.name, "#1B5E20") }
+        }
+        if (layerOn(MapLayer.DANGER)) {
+            dangers.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lon, it.lat, it.type, "#B71C1C") }
+        }
+
         withContext(Dispatchers.Main) {
             // 名称显示阈值（低于该级别不排版文字，减少密集数据卡顿）
             ctrl.applyLabelZoom(labelZoom)
@@ -342,7 +378,8 @@ object LayerRenderer {
             ctrl.setFeatures(LayerIds.SRC_CROSSING, crossingFeatures)
             ctrl.setFeatures(LayerIds.SRC_CUSTOM, overlayFeatures)
             ctrl.setFeatures(LayerIds.SRC_THEMATIC, thematicFeatureList + layerLabelFeatures)
-            ctrl.setFeatures(LayerIds.SRC_AREA_LABEL, polygonLabelFeatures)
+            ctrl.setFeatures(LayerIds.SRC_AREA_LABEL, areaLabelFeatures)
+            ctrl.setFeatures(LayerIds.SRC_POINT_LABEL, pointLabelFeatures)
 
             ctrl.setLayerVisible(LayerIds.LYR_LINE, layerOn(MapLayer.OVERHEAD_LINE))
             ctrl.setLayerVisible(LayerIds.LYR_LINE_LABEL, layerOn(MapLayer.OVERHEAD_LINE))
@@ -364,9 +401,35 @@ object LayerRenderer {
             ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LABEL, layerOn(MapLayer.THEMATIC))
             ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LABEL_DENSE, layerOn(MapLayer.THEMATIC))
             ctrl.setLayerVisible(LayerIds.LYR_AREA_LABEL, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_AREA_LABEL_DENSE, layerOn(MapLayer.THEMATIC))
+            ctrl.setLayerVisible(LayerIds.LYR_POINT_LABEL, true)
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_FILL, layerOn(MapLayer.CUSTOM))
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_LINE, layerOn(MapLayer.CUSTOM))
             ctrl.setLayerVisible(LayerIds.LYR_CUSTOM_TEXT, layerOn(MapLayer.CUSTOM))
+        }
+    }
+
+    /**
+     * 区域名称锚点：面用导入时算好的质心，线用几何中点（避免所有边界线的名字
+     * 都挤在起点）。解析失败时回退要素坐标，保证名称不会因此消失。
+     */
+    private fun labelAnchor(f: ThematicFeatureEntity): Pair<Double, Double>? {
+        val lon = f.lon ?: return null
+        val lat = f.lat ?: return null
+        if (f.kind != "line") return lon to lat
+        return try {
+            val g = Feature.fromJson(
+                """{"type":"Feature","properties":{},"geometry":${f.geometryGeojson}}"""
+            ).geometry()
+            val pts = (g as? org.maplibre.geojson.LineString)?.coordinates()
+            if (!pts.isNullOrEmpty()) {
+                val p = pts[pts.size / 2]
+                p.longitude() to p.latitude()
+            } else {
+                lon to lat
+            }
+        } catch (e: Exception) {
+            lon to lat
         }
     }
 

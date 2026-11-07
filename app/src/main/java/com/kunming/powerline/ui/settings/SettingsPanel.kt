@@ -160,11 +160,15 @@ fun SettingsPanel(
                 "名称显示缩放级别：${"%.0f".format(labelZoom)} 级",
                 fontSize = 12.5.sp, color = Color(0xFF444444)
             )
+            Text(
+                "控制线路名 / 专题点名 / 杆塔号；区域名始终显示，业务点位名称 12 级起显示",
+                fontSize = 10.5.sp, color = Color(0xFF8D857B)
+            )
             Slider(
                 value = labelZoom,
                 onValueChange = { onLabelZoomChange(it) },
-                valueRange = 8f..16f,
-                steps = 7,
+                valueRange = 6f..17f,
+                steps = 10,
                 colors = SliderDefaults.colors(
                     thumbColor = PowerRed,
                     activeTrackColor = PowerRed

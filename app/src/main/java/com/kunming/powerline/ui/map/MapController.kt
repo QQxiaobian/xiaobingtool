@@ -217,10 +217,14 @@ class MapController {
         thematicDenseLabelLayer.setMinZoom(LABEL_MIN_ZOOM)
         st.addLayer(thematicDenseLabelLayer)
 
-        // 面要素名称（行政区划 / 巡视区域）：独立点图层，6 级起就可见，
-        // 不做碰撞剔除，保证每个区县的名字都能看到
+        // 区域名称（行政区划 / 巡视区域 / 边界线）：独立点图层，低缩放直接可见，
+        // 不做碰撞剔除，保证每个区县的名字一打开地图就能看到（不再需要放大到 10 级）。
+        // 要素数超过阈值时改走 DENSE 层做碰撞避让，避免几千条文字在低缩放糊满屏。
         st.addSource(geoSource(LayerIds.SRC_AREA_LABEL, empty))
         val areaLabelLayer = SymbolLayer(LayerIds.LYR_AREA_LABEL, LayerIds.SRC_AREA_LABEL)
+        areaLabelLayer.withFilter(
+            Expression.eq(Expression.get("labelDense"), Expression.literal(0))
+        )
         areaLabelLayer.withProperties(
             textFieldOfLabel(),
             PropertyFactory.textSize(12f),
@@ -235,8 +239,48 @@ class MapController {
             PropertyFactory.textIgnorePlacement(true),
             PropertyFactory.textOptional(true)
         )
-        areaLabelLayer.setMinZoom(MIN_LABEL_ZOOM)
+        areaLabelLayer.setMinZoom(AREA_LABEL_MIN_ZOOM)
         st.addLayer(areaLabelLayer)
+        val areaDenseLabelLayer = SymbolLayer(LayerIds.LYR_AREA_LABEL_DENSE, LayerIds.SRC_AREA_LABEL)
+        areaDenseLabelLayer.withFilter(
+            Expression.eq(Expression.get("labelDense"), Expression.literal(1))
+        )
+        areaDenseLabelLayer.withProperties(
+            textFieldOfLabel(),
+            PropertyFactory.textSize(11.5f),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textColor(Expression.get("color")),
+            PropertyFactory.textHaloColor("#FFFFFF"),
+            PropertyFactory.textHaloWidth(2.2f),
+            PropertyFactory.textMaxWidth(8.5f),
+            PropertyFactory.textLineHeight(1.05f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_CENTER),
+            PropertyFactory.textPadding(2f),
+            PropertyFactory.textAllowOverlap(false),
+            PropertyFactory.textIgnorePlacement(false),
+            PropertyFactory.textOptional(true)
+        )
+        areaDenseLabelLayer.setMinZoom(AREA_LABEL_MIN_ZOOM)
+        st.addLayer(areaDenseLabelLayer)
+        // 业务点位名称（图标常显，文字只在放大后出现，低缩放完全不排版）
+        st.addSource(geoSource(LayerIds.SRC_POINT_LABEL, empty))
+        val pointLabelLayer = SymbolLayer(LayerIds.LYR_POINT_LABEL, LayerIds.SRC_POINT_LABEL)
+        pointLabelLayer.withProperties(
+            PropertyFactory.textField(Expression.coalesce(Expression.get("label"), Expression.literal(""))),
+            PropertyFactory.textSize(11f),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textColor(Expression.get("color")),
+            PropertyFactory.textHaloColor("#FFFFFF"),
+            PropertyFactory.textHaloWidth(1.8f),
+            PropertyFactory.textMaxWidth(8f),
+            PropertyFactory.textOffset(arrayOf(0f, 1.15f)),
+            PropertyFactory.textAllowOverlap(false),
+            PropertyFactory.textIgnorePlacement(false),
+            PropertyFactory.textPadding(3f),
+            PropertyFactory.textOptional(true)
+        )
+        pointLabelLayer.setMinZoom(POINT_LABEL_MIN_ZOOM)
+        st.addLayer(pointLabelLayer)
         // 线路
         st.addSource(geoSource(LayerIds.SRC_LINE, empty))
         st.addLayer(
@@ -317,14 +361,15 @@ class MapController {
         )
         // 杆塔
         st.addSource(geoSource(LayerIds.SRC_TOWER, empty))
-        st.addLayer(
-            SymbolLayer(LayerIds.LYR_TOWER, LayerIds.SRC_TOWER).withProperties(
-                PropertyFactory.iconImage(Expression.get("icon")),
-                PropertyFactory.iconSize(0.32f),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true)
-            )
+        val towerIconLayer = SymbolLayer(LayerIds.LYR_TOWER, LayerIds.SRC_TOWER).withProperties(
+            PropertyFactory.iconImage(Expression.get("icon")),
+            PropertyFactory.iconSize(0.32f),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true)
         )
+        // 全省视野（<5 级）几千个杆塔图标没有意义，跳过绘制可显著降低渲染压力
+        towerIconLayer.setMinZoom(TOWER_ICON_MIN_ZOOM)
+        st.addLayer(towerIconLayer)
         // 杆塔编号单独一层：数据量大，放大到近景才绘制，避免整条线路几千个编号同时排版
         val towerLabelLayer = SymbolLayer(LayerIds.LYR_TOWER_LABEL, LayerIds.SRC_TOWER)
         towerLabelLayer.withProperties(
@@ -348,13 +393,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_FAVORITE),
                 PropertyFactory.iconSize(0.42f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textSize(11f),
-                PropertyFactory.textColor("#FFE082"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.8f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 起飞点
@@ -364,13 +402,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_TAKEOFF),
                 PropertyFactory.iconSize(0.46f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textSize(11f),
-                PropertyFactory.textColor("#B2EBF2"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.8f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 影像
@@ -389,13 +420,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_CROSSING),
                 PropertyFactory.iconSize(0.44f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("crossObject")),
-                PropertyFactory.textSize(10f),
-                PropertyFactory.textColor("#FFE0B2"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.6f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 视频监控
@@ -405,13 +429,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_CAMERA),
                 PropertyFactory.iconSize(0.42f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textSize(10f),
-                PropertyFactory.textColor("#80CBC4"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.6f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.1f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 护线员
@@ -421,13 +438,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_GUARDIAN),
                 PropertyFactory.iconSize(0.44f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("name")),
-                PropertyFactory.textSize(11f),
-                PropertyFactory.textColor("#C8E6C9"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.8f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 危险点
@@ -437,13 +447,6 @@ class MapController {
                 PropertyFactory.iconImage(LayerIds.ICON_DANGER),
                 PropertyFactory.iconSize(0.46f),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.textField(Expression.get("type")),
-                PropertyFactory.textSize(10f),
-                PropertyFactory.textColor("#FFCDD2"),
-                PropertyFactory.textHaloColor("#000000"),
-                PropertyFactory.textHaloWidth(1.6f),
-                PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
-                PropertyFactory.textAllowOverlap(true)
             )
         )
         // 自定义图层
@@ -620,15 +623,18 @@ class MapController {
     /**
      * 名称显示阈值：低于该缩放级别只画几何，不排版文字。
      *
-     * 线路名 / 区域名 / 杆塔号三者共用一个"用户设定阈值"，
-     * 杆塔号数据量最大，额外再抬高 [TOWER_LABEL_ZOOM_OFFSET] 级。
+     * 分级策略（避免一次性排版几千条文字造成卡顿）：
+     * - 区域名称（LYR_AREA_LABEL*）固定 [AREA_LABEL_MIN_ZOOM]，**不受本设置约束**，
+     *   行政区划一打开地图就能看到名字；
+     * - 业务点位名称（LYR_POINT_LABEL）固定 [POINT_LABEL_MIN_ZOOM]，低缩放只画图标；
+     * - 线路名 / 专题点名 / 杆塔号仍跟随用户设定阈值，杆塔号再抬高
+     *   [TOWER_LABEL_ZOOM_OFFSET] 级。
      */
     fun applyLabelZoom(baseZoom: Float) {
         val st = style ?: return
         val z = baseZoom.coerceIn(MIN_LABEL_ZOOM, MAX_LABEL_ZOOM)
         st.getLayer(LayerIds.LYR_LINE_LABEL_POINT)?.setMinZoom(z)
         st.getLayer(LayerIds.LYR_LINE_LABEL)?.setMinZoom((z + 2f).coerceAtMost(MAX_LABEL_ZOOM))
-        // 区域/点位名称比线路名早一级出现：区域是宏观要素，缩小后仍需辨认
         val areaZ = (z - 1f).coerceAtLeast(MIN_LABEL_ZOOM)
         st.getLayer(LayerIds.LYR_THEMATIC_LABEL)?.setMinZoom(areaZ)
         st.getLayer(LayerIds.LYR_THEMATIC_LABEL_DENSE)?.setMinZoom(areaZ)
@@ -739,5 +745,11 @@ class MapController {
         const val TOWER_LABEL_ZOOM_OFFSET = 2.5f
         const val MIN_LABEL_ZOOM = 6f
         const val MAX_LABEL_ZOOM = 17f
+        /** 区域名称：低缩放直接显示，不受用户设置的名称阈值约束 */
+        const val AREA_LABEL_MIN_ZOOM = 3f
+        /** 业务点位名称（收藏点等）：放大到近景才显示，避免低缩放全屏文字卡顿 */
+        const val POINT_LABEL_MIN_ZOOM = 12f
+        /** 杆塔图标在极低缩放不绘制，全省视野几千个图标会拖慢渲染 */
+        const val TOWER_ICON_MIN_ZOOM = 5f
     }
 }
