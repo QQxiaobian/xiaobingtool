@@ -1,0 +1,45 @@
+# 输电线路智能巡检 · NAS 内网服务端
+# 适用：群晖 DSM「Container Manager / 项目」、威联通 Container Station、绿联/极空间 Docker，
+#       或任何支持 docker compose 的主机。
+#
+# 启动：  docker compose up -d
+# 停止：  docker compose down
+# 日志：  docker compose logs -f pms
+#
+# 端口说明（App 端 local.properties 要填的就是这两个）：
+#   8080  PMS 台账 REST + 位置共享 WebSocket + 瓦片（单容器兜底）
+#   8090  纯静态瓦片（nginx，性能更好，推荐 App 用这个）
+services:
+  pms:
+    build: ./pms
+    container_name: powerline-pms
+    restart: unless-stopped
+    ports:
+      - "${PMS_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      PMS_DB: /data/pms.db
+      TILE_ROOT: /data/tiles
+      # 留空 = 不校验（App 的 OkHttp 未加自定义 Header，开启会导致连不上）
+      API_TOKEN: "${API_TOKEN:-}"
+      # 首次启动写入 3 条示例线路便于验收；正式导入后设为 0
+      SEED_DEMO: "${SEED_DEMO:-1}"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  tiles:
+    image: nginx:1.27-alpine
+    container_name: powerline-tiles
+    restart: unless-stopped
+    ports:
+      - "${TILE_PORT:-8090}:80"
+    volumes:
+      - ./data/tiles:/usr/share/nginx/html/tiles:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - pms

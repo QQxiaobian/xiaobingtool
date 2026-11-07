@@ -147,6 +147,14 @@ cp local.properties.template local.properties
 需运维在内网部署台账服务，实现 `GET /api/lines`、`GET /api/towers?lineId=`、`GET /api/units`、
 `GET/POST /api/import/pms-ledger`，字段结构见 `data/remote/model/PmsModels.kt`。
 
+### 3.4 NAS 自建地图 / 线路服务器（可选）
+
+仓库内 [`nas-server/`](nas-server/README.md) 提供一套可直接部署到群晖 / 威联通 / 绿联 / 极空间的
+Docker Compose 工程，包含瓦片服务（nginx）、PMS 台账 REST 与位置共享 WebSocket，
+接口已按 App 源码实现并通过实测。部署后把 `local.properties` 的
+`PMS_BASE_URL` / `WS_LOCATION_URL` / `TILE_SERVER_URL` 指向 NAS 并重新打包即可，
+无需修改 App 代码。详见 [nas-server/README.md](nas-server/README.md)。
+
 ---
 
 ## 4. 打包与签名

@@ -1,0 +1,11 @@
+# 运行时数据与本机配置不入库
+.env
+data/pms.db
+data/pms.db-*
+data/tiles/[0-9]*/
+data/tiles/yn_img/
+data/tiles/cn_img/
+data/tiles/yn_vec/
+*.xlsx
+__pycache__/
+*.pyc
