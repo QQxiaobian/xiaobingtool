@@ -25,7 +25,9 @@ import javax.inject.Singleton
  * 下行：同结构（其他成员位置）
  */
 @Singleton
-class LocationShareSocket @Inject constructor() {
+class LocationShareSocket @Inject constructor(
+    private val config: com.kunming.powerline.data.prefs.ServerConfig
+) {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -65,7 +67,8 @@ class LocationShareSocket @Inject constructor() {
         this.room = roomId
         this.userId = userId
         close()
-        val base = BuildConfig.WS_LOCATION_URL
+        // 运行时地址：改服务器后重新开启共享即连到新地址
+        val base = config.current.wsLocation
         val url = if (base.contains("room=")) base else "$base?room=$roomId"
         val req = Request.Builder().url(url).build()
         _events.tryEmit("正在连接 $url")

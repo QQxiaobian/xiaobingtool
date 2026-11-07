@@ -22,7 +22,8 @@ import javax.inject.Singleton
 class PmsRepository @Inject constructor(
     private val api: PmsApi,
     private val db: AppDatabase,
-    private val lineRepo: LineRepository
+    private val lineRepo: LineRepository,
+    private val serverConfig: com.kunming.powerline.data.prefs.ServerConfig
 ) {
 
     suspend fun fetchUnits(): Result<List<String>> = withContext(Dispatchers.IO) {
@@ -151,5 +152,6 @@ class PmsRepository @Inject constructor(
             n
         }
 
-    fun baseUrl(): String = BuildConfig.PMS_BASE_URL
+    /** 当前生效的 PMS 地址（设置页可改，改完即时生效） */
+    fun baseUrl(): String = serverConfig.current.pmsBase
 }

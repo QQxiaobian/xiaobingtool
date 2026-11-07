@@ -78,13 +78,21 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun providePmsApi(client: OkHttpClient, moshi: Moshi): PmsApi =
-        Retrofit.Builder()
+    fun providePmsApi(
+        client: OkHttpClient,
+        moshi: Moshi,
+        serverUrl: ServerUrlInterceptor
+    ): PmsApi {
+        // 只给 PMS 单独挂动态地址拦截器；全局 client 保持不变，
+        // 避免影响 TileDownloader 下载在线天地图瓦片。
+        val pmsClient = client.newBuilder().addInterceptor(serverUrl).build()
+        return Retrofit.Builder()
             .baseUrl(BuildConfig.PMS_BASE_URL.ensureTrailingSlash())
-            .client(client)
+            .client(pmsClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(PmsApi::class.java)
+    }
 
     private fun String.ensureTrailingSlash(): String = if (endsWith("/")) this else "$this/"
 }

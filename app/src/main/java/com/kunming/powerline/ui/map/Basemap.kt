@@ -61,9 +61,8 @@ object TileSourceFactory {
         }
     }
 
-    /** 服务器版瓦片 URL（自建） */
-    fun serverTileUrl(type: BasemapType): String {
-        val base = BuildConfig.TILE_SERVER_URL
+    /** 服务器版瓦片 URL（自建）：base 来自运行时服务器设置，不再写死在 BuildConfig */
+    fun serverTileUrl(type: BasemapType, base: String = BuildConfig.TILE_SERVER_URL): String {
         return when (type) {
             BasemapType.YN_SATELLITE_SERVER, BasemapType.YN_SATELLITE_SERVER_ROAD -> base.replace("tiles/", "tiles/yn_img/")
             BasemapType.CN_SATELLITE_SERVER -> base.replace("tiles/", "tiles/cn_img/")
@@ -97,11 +96,15 @@ object TileSourceFactory {
      * - raster 源 + raster 图层，tileSize 256
      * - 世界背景色避免瓦片未加载时花屏
      */
-    fun buildStyleJson(type: BasemapType, extraTileUrls: List<Pair<String, String>> = emptyList()): String {
+    fun buildStyleJson(
+        type: BasemapType,
+        extraTileUrls: List<Pair<String, String>> = emptyList(),
+        serverTileBase: String = BuildConfig.TILE_SERVER_URL
+    ): String {
         val sb = StringBuilder()
         sb.append("""{"version":8,"name":"${type.name}","sources":{""")
 
-        val primaryUrl = if (type.isServer) serverTileUrl(type) else primaryTileUrl(type)
+        val primaryUrl = if (type.isServer) serverTileUrl(type, serverTileBase) else primaryTileUrl(type)
         val primaryTiles = tilesJson(expandTiles(primaryUrl))
         sb.append(
             """"basemap":{"type":"raster","tiles":[$primaryTiles],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""

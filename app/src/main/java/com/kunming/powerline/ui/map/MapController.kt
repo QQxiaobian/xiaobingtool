@@ -81,12 +81,16 @@ class MapController {
     // ------------------------------------------------------------------
     // Style
     // ------------------------------------------------------------------
-    fun loadBasemap(type: BasemapType, keepCamera: Boolean = true) {
+    fun loadBasemap(
+        type: BasemapType,
+        keepCamera: Boolean = true,
+        tileServerBase: String = com.kunming.powerline.BuildConfig.TILE_SERVER_URL
+    ) {
         val m = map ?: return
         val cam = if (keepCamera) m.cameraPosition else null
         currentBasemap = type
         ready = false
-        val json = TileSourceFactory.buildStyleJson(type)
+        val json = TileSourceFactory.buildStyleJson(type, serverTileBase = tileServerBase)
         m.setStyle(Style.Builder().fromJson(json)) { st ->
             style = st
             registerIcons(st)

@@ -35,7 +35,18 @@ class SettingsStore @Inject constructor(private val context: Context) {
         val OFFLINE_MODE = booleanPreferencesKey("offline_mode")
         val GROUP_ID = intPreferencesKey("current_group")
         val LABEL_ZOOM = floatPreferencesKey("label_min_zoom")
+        // 运行时服务器地址覆盖（空串 = 使用编译期 buildConfigField 默认值）
+        val SERVER_PMS = stringPreferencesKey("server_pms_base")
+        val SERVER_WS = stringPreferencesKey("server_ws_location")
+        val SERVER_TILES = stringPreferencesKey("server_tile_url")
     }
+
+    /** 用户在设置页填写的服务器地址覆盖值 */
+    data class ServerOverride(
+        val pms: String = "",
+        val ws: String = "",
+        val tiles: String = ""
+    )
 
     private val prefs = context.dataStore.data
 
@@ -51,6 +62,14 @@ class SettingsStore @Inject constructor(private val context: Context) {
     val groupId: Flow<Int> = prefs.map { it[Keys.GROUP_ID] ?: -1 }
     /** 名称（线路名 / 区域名 / 杆塔号）开始显示的缩放级别 */
     val labelZoom: Flow<Float> = prefs.map { it[Keys.LABEL_ZOOM] ?: 11f }
+    /** 运行时服务器地址覆盖；三项均为空表示用编译期默认 */
+    val serverAddresses: Flow<ServerOverride> = prefs.map {
+        ServerOverride(
+            it[Keys.SERVER_PMS] ?: "",
+            it[Keys.SERVER_WS] ?: "",
+            it[Keys.SERVER_TILES] ?: ""
+        )
+    }
 
     suspend fun setBasemap(v: String) = context.dataStore.edit { it[Keys.BASEMAP] = v }
     suspend fun setTextSize(v: Float) = context.dataStore.edit { it[Keys.TEXT_SIZE] = v.coerceIn(8f, 20f) }
@@ -63,6 +82,11 @@ class SettingsStore @Inject constructor(private val context: Context) {
     suspend fun setVoltageFilter(v: String) = context.dataStore.edit { it[Keys.VOLTAGE_FILTER] = v }
     suspend fun setGroupId(v: Int) = context.dataStore.edit { it[Keys.GROUP_ID] = v }
     suspend fun setLabelZoom(v: Float) = context.dataStore.edit { it[Keys.LABEL_ZOOM] = v.coerceIn(6f, 17f) }
+    suspend fun setServerAddresses(o: ServerOverride) = context.dataStore.edit {
+        it[Keys.SERVER_PMS] = o.pms
+        it[Keys.SERVER_WS] = o.ws
+        it[Keys.SERVER_TILES] = o.tiles
+    }
 
     suspend fun saveCamera(lon: Double, lat: Double, zoom: Float) = context.dataStore.edit {
         it[stringPreferencesKey("last_lon")] = lon.toString()
