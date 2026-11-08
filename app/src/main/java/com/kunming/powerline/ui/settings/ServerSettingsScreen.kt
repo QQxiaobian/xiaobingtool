@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -69,6 +70,7 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .background(Color(0xFAFBF6EE))
+                .statusBarsPadding()
         ) {
             // ---------------- 顶栏 ----------------
             Row(

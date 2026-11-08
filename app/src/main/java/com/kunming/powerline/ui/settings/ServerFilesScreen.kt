@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,6 +109,7 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .background(Color(0xFAFBF6EE))
+                .statusBarsPadding()
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
@@ -122,13 +124,19 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                 )
                 Text(
                     if (selectionMode) "退出多选" else "批量选择",
-                    fontSize = 12.5.sp, color = PowerRed, fontWeight = FontWeight.Medium,
+                    fontSize = 12.5.sp,
+                    color = if (selectionMode) HintGray else Color.White,
+                    fontWeight = FontWeight.Medium,
                     modifier = Modifier
+                        .background(
+                            if (selectionMode) Color(0x14000000) else PowerRed,
+                            RoundedCornerShape(14.dp)
+                        )
                         .clickable {
                             selectionMode = !selectionMode
                             selected = emptySet()
                         }
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
                 )
                 Text(
                     "刷新", fontSize = 12.5.sp, color = PowerRed,
@@ -178,7 +186,26 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(16.dp))
-                SectionTitle("服务器上的文件（${files.size}）" + if (selectionMode) " · 已选 ${selected.size}" else "")
+                // 内容区也放一个多选入口：即使顶部栏被系统 UI 挡住，这里也一定能点
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        SectionTitle(
+                            "服务器上的文件（${files.size}）" +
+                                if (selectionMode) " · 已选 ${selected.size}" else ""
+                        )
+                    }
+                    Text(
+                        if (selectionMode) "退出多选" else "☑ 批量选择",
+                        fontSize = 12.sp, color = PowerRed, fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .background(Color(0x14B71C1C), RoundedCornerShape(10.dp))
+                            .clickable {
+                                selectionMode = !selectionMode
+                                selected = emptySet()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                    )
+                }
                 if (files.isEmpty()) {
                     Text(
                         "暂无文件。请确认 NAS 已更新到 1.3 服务端、/health 里 files 字段可见，" +
@@ -210,7 +237,8 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "批量导入为线路", fontSize = 12.sp, color = PowerRed,
+                                "批量导入为线路", fontSize = 12.sp,
+                                color = if (selected.isNotEmpty()) PowerRed else HintGray,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .background(Color(0x14B71C1C), RoundedCornerShape(8.dp))
@@ -218,10 +246,11 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                                         val chosen = files.filter { it.id in selected }
                                         vm.importServerFiles(chosen, false) { ok, msg -> tell(ok, msg) }
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                             )
                             Text(
-                                "批量导入为图层", fontSize = 12.sp, color = PowerRed,
+                                "批量导入为图层", fontSize = 12.sp,
+                                color = if (selected.isNotEmpty()) PowerRed else HintGray,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .background(Color(0x14B71C1C), RoundedCornerShape(8.dp))
@@ -229,7 +258,7 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                                         val chosen = files.filter { it.id in selected }
                                         vm.importServerFiles(chosen, true) { ok, msg -> tell(ok, msg) }
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                             )
                             Text(
                                 "删除选中", fontSize = 12.sp, color = Color(0xFF8D6E63),
@@ -245,6 +274,8 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                         Column(
                             Modifier
                                 .fillMaxWidth()
+                                // 多选模式下整行都能点，勾选范围更大
+                                .then(if (selectionMode) Modifier.clickable { toggle(f.id) } else Modifier)
                                 .padding(vertical = 5.dp)
                                 .background(Color.White, RoundedCornerShape(10.dp))
                                 .padding(11.dp)

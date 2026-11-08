@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.4.0（versionCode 25）
+- **当前版本**：1.4.1（versionCode 26）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -37,6 +37,7 @@
 | 服务器原始文件（1.3.0） | 直接把 KML / KMZ / GeoJSON / GPX / SHP(zip) 放进 NAS 的 `files` 目录，App 自动列出、下载并导入为「线路」或「专题图层」；也可从手机上传 / 删除服务器文件 |
 | 全量导出导入（1.3.0） | 一键导出本机**全部**图层 + 线路 + 杆塔，无需填名称 / 选类型；「备份 JSON」可无损还原，「GeoJSON」供 QGIS / Google Earth 等外部系统交换；导入自动识别备份包或按线路 / 图层解析 |
 | 批量与命名（1.4.0） | 线路 / 专题图层可勾选批量删除（二次确认）；服务器文件可勾选多个一键导入为线路或图层、批量删除；服务器导入线路时线路名默认取文件名，并自动从文件名识别电压等级（`220kV` / `500千伏` / `110_某某线`）；打包默认服务器地址改为 `192.168.1.12:8902` 单端口（REST / WS / 瓦片同一端口） |
+| 状态栏避让（1.4.1） | 所有全屏页面顶部按钮（返回、刷新、批量选择、图层面板关闭、照片查看器关闭）统一下移到状态栏下方，避免被系统状态栏遮挡无法点击；服务器文件页顶部「批量选择」改为醒目按钮，内容区另设一个多选入口，多选时整行均可勾选 |
 
 ---
 
@@ -216,8 +217,8 @@ Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v
 `apksigner verify --min-sdk-version 23 --verbose app-release.apk`
 可见 `v1 / v2 / v3` 全部为 `true`。
 
-交付包内随附 `PowerLine-1.4.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
-`PowerLine-1.4.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
+交付包内随附 `PowerLine-1.4.1-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
+`PowerLine-1.4.1-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
 
 ### 4.3 分 ABI 打包（减小体积，可选）
 
@@ -287,7 +288,7 @@ app/src/main/java/com/kunming/powerline/
 │   ├── settings/                   设置面板、服务器地址、地图数据设置
 │   │   ├── CustomMapSourceScreen.kt  1.2.0 自定义地图源管理
 │   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步；1.3.0 增加全量导出导入
-│   │   └── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入；1.4.0 批量勾选导入为线路/图层
+│   │   └── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入；1.4.0 批量勾选导入为线路/图层；1.4.1 状态栏避让 + 双多选入口
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
 ├── domain/                         领域模型
@@ -511,6 +512,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.4.1 | 2026-11 | 修复沉浸式（edge-to-edge）布局下设置类页面顶部按钮被系统状态栏遮挡、无法点击的问题：`SettingsPanel` / `ServerSettingsScreen` / `CustomMapSourceScreen` / `DataSyncScreen` / `ServerFilesScreen` / `LayerPanel` 与照片查看器关闭按钮统一补 `statusBarsPadding()`；「服务器文件」页的顶部「批量选择」改为醒目按钮、内容区增加第二个多选入口、多选时整行可勾选、批量导入按钮加大点击区域；137 项单测通过 |
 | 1.4.0 | 2026-11 | 线路 / 专题图层支持勾选批量删除（二次确认）；服务器文件可勾选多个一键导入为线路或图层、批量删除；服务器导入线路时线路名默认取文件名并自动识别电压等级（新增 `ServerImportNaming` 与 8 项单测）；打包默认服务器地址改为 `192.168.1.12:8902` 单端口，NAS 侧 `PMS_PORT` 同步对齐；137 项单测通过 |
 | 1.3.1 | 2026-11 | 按需求移除演示 / 测试用定位功能及其全部代码、设置入口、地图点选与单测；定位、位置共享、巡检轨迹统一使用真实 GPS；128 项单测通过 |
 | 1.3.0 | 2026-11 | 服务器原始文件库（直接加载 NAS 上的 KML/KMZ/GeoJSON/GPX/SHP，可导入为线路或图层、可上传/删除）、全量线路/图层导出导入（无损备份 JSON + 通用 GeoJSON）、NAS `/api/files` 系列接口与 `file_cli.py`、`GeoJsonExporter` / `ServerFileRepository`、133 项单测 |
