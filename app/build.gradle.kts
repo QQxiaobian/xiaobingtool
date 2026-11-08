@@ -29,8 +29,8 @@ android {
         applicationId = "com.kunming.powerline"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "1.4.1"
+        versionCode = 27
+        versionName = "1.5.0"
 
         if (abiFilter.isNotBlank()) {
             ndk { abiFilters.clear(); abiFilters += abiFilter }
@@ -44,16 +44,17 @@ android {
         buildConfigField("String", "TIANDITU_KEY_YUNNAN", "\"${prop("TIANDITU_KEY_YUNNAN", prop("TIANDITU_KEY"))}\"")
         // 高德定位 key（Android Key，需与包名 + SHA1 绑定）
         buildConfigField("String", "AMAP_KEY", "\"${prop("AMAP_KEY")}\"")
-        // PMS / 生产管理系统内网接口（1.4.0 起默认单端口 8902：REST / WS / 瓦片同一地址）
+        // PMS / 生产管理系统内网接口（单端口 8902：REST / 瓦片同一地址；位置共享 WS 已移除）
         buildConfigField("String", "PMS_BASE_URL", "\"${prop("PMS_BASE_URL", "http://192.168.1.12:8902/")}\"")
-        // 位置共享 WebSocket
-        buildConfigField("String", "WS_LOCATION_URL", "\"${prop("WS_LOCATION_URL", "ws://192.168.1.12:8902/ws/location")}\"")
         // 自建瓦片服务器地址
         buildConfigField("String", "TILE_SERVER_URL", "\"${prop("TILE_SERVER_URL", "http://192.168.1.12:8902/tiles/{z}/{x}/{y}.png")}\"")
         // 在线路网（自制注记瓦片）
         buildConfigField("String", "ROADNET_TILE_URL", "\"${prop("ROADNET_TILE_URL", "https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${prop("TIANDITU_KEY_YUNNAN", prop("TIANDITU_KEY"))}")}\"")
-        // 帮助文档
-        buildConfigField("String", "HELP_DOC_URL", "\"${prop("HELP_DOC_URL", "https://lbs.tianditu.gov.cn/")}\"")
+        // 在线帮助 / 项目主页 / 版本发布 / 检查更新（1.5.0 帮助主文档改为 App 内置，此为在线备用入口）
+        buildConfigField("String", "HELP_DOC_URL", "\"${prop("HELP_DOC_URL", "https://github.com/QQxiaobian/xiaobingtool#readme")}\"")
+        buildConfigField("String", "PROJECT_URL", "\"${prop("PROJECT_URL", "https://github.com/QQxiaobian/xiaobingtool")}\"")
+        buildConfigField("String", "RELEASES_URL", "\"${prop("RELEASES_URL", "https://github.com/QQxiaobian/xiaobingtool/releases")}\"")
+        buildConfigField("String", "UPDATE_CHECK_URL", "\"${prop("UPDATE_CHECK_URL", "https://api.github.com/repos/QQxiaobian/xiaobingtool/releases/latest")}\"")
 
         ndk {
             if (abiFilter.isBlank()) {

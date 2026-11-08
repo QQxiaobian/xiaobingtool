@@ -7,7 +7,7 @@
 # 日志：  docker compose logs -f pms
 #
 # 端口说明（App 端 local.properties 要填的就是这两个）：
-#   8902  PMS 台账 REST + 位置共享 WebSocket + 瓦片（单容器兜底，1.4.0 起 App 默认端口）
+#   8902  PMS 台账 REST + 瓦片 + 原始文件库（单容器兜底，App 默认端口）
 #   8090  纯静态瓦片（nginx，可选，性能更好）
 services:
   pms:

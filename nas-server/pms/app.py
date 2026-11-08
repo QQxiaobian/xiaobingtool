@@ -2,17 +2,18 @@
 """
 输电线路智能巡检 · NAS 内网服务端
 ================================================
-单进程同时提供三类能力，端口 8080：
+单进程同时提供两类能力，单端口（默认 8902/8080）：
 
   1) PMS 台账 REST   /api/*            对应 App: PMS_BASE_URL
-  2) 位置共享 WS     /ws/location      对应 App: WS_LOCATION_URL
-  3) XYZ 静态瓦片    /tiles/*          对应 App: TILE_SERVER_URL（也可交给 nginx:8090）
+  2) XYZ 静态瓦片    /tiles/*          对应 App: TILE_SERVER_URL（也可交给 nginx 承担）
+  3) 原始文件库      /api/files        对应 App「服务器文件」页
 
 接口契约严格对齐 App 源码：
   data/remote/PmsApi.kt
   data/remote/model/PmsModels.kt
   ui/map/Basemap.kt  (serverTileUrl：tiles/yn_img/、tiles/cn_img/、tiles/yn_vec/)
-  data/location/LocationShareSocket.kt
+  data/remote/model/ServerFileModels.kt
+注：位置共享 WebSocket 已于 App 1.5.0 起整体移除，本服务不再提供 /ws/location。
 
 数据落 SQLite（/data/pms.db），瓦片是纯文件目录（/data/tiles）。
 无任何外部数据库依赖，适合群晖 / 威联通 / 绿联 / 极空间 Container Manager。
@@ -21,14 +22,11 @@ import hashlib
 import json
 import os
 import sqlite3
-import threading
 import time
-from collections import defaultdict
 from pathlib import Path
 from urllib.parse import unquote
 
 from flask import Flask, jsonify, request, send_from_directory
-from flask_sock import Sock
 
 DB_PATH = os.environ.get("PMS_DB", "/data/pms.db")
 TILE_ROOT = Path(os.environ.get("TILE_ROOT", "/data/tiles"))
@@ -42,7 +40,6 @@ SEED_DEMO = os.environ.get("SEED_DEMO", "1") == "1"
 PORT = int(os.environ.get("PORT", "8080"))
 
 app = Flask(__name__)
-sock = Sock(app)
 
 
 # ---------------------------------------------------------------- 数据库
@@ -143,7 +140,7 @@ def clean(row):
 def guard():
     if not API_TOKEN:
         return None
-    if request.path.startswith(("/tiles/", "/health", "/ws/")):
+    if request.path.startswith(("/tiles/", "/health")):
         return None
     if request.headers.get("X-Auth-Token", "") != API_TOKEN:
         return jsonify({"error": "unauthorized"}), 401
@@ -183,10 +180,8 @@ def health():
     prefix = request.headers.get("X-Forwarded-Prefix", "").rstrip("/")
     root = request.host_url.rstrip("/") + prefix
     host_part = request.host_url.split("://", 1)[-1].rstrip("/") + prefix
-    ws_scheme = "wss" if request.host_url.startswith("https://") else "ws"
     urls = {
         "pmsBase": root + "/",
-        "wsLocation": f"{ws_scheme}://{host_part}/ws/location",
         "tileServer": root + "/tiles/{z}/{x}/{y}.png",
     }
     # 可选：若另起了 nginx 8090 承担瓦片，用 TILE_PUBLIC_URL 告知 App
@@ -196,7 +191,7 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.3",
+        "version": "1.5",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,
@@ -207,13 +202,14 @@ def health():
         "auth": "on" if API_TOKEN else "off",
         "urls": urls,
         "hint": "App 只需填 pmsBase 一个地址；1.2.0 起可上传/下载图层与线路数据集，"
-                "1.3.0 起可直接把 KML/KMZ/GeoJSON/GPX/SHP 放进 files 目录并在「服务器文件」里加载",
+                "1.3.0 起可直接把 KML/KMZ/GeoJSON/GPX/SHP 放进 files 目录并在「服务器文件」里加载；"
+                "1.5.0 起位置共享 WS 已移除",
         "endpoints": ["/api/lines", "/api/towers", "/api/units",
                       "/api/import/pms-ledger", "/api/datasets (GET/POST)",
                       "/api/datasets/{id} (GET/DELETE)", "/api/datasets/{id}/download",
                       "/api/datasets/import", "/api/files (GET/POST)",
                       "/api/files/{id}/download (GET)", "/api/files/{id} (DELETE)",
-                      "/ws/location", "/tiles/{z}/{x}/{y}.png"],
+                      "/tiles/{z}/{x}/{y}.png"],
     })
 
 
@@ -575,56 +571,6 @@ def tiles(rel):
     return resp
 
 
-# ---------------------------------------------------------------- 位置共享 WS
-# 协议（LocationShareSocket.kt）：
-#   App -> {"userId","lon","lat","speed","ts"}
-#   服务端按 room 广播给房间内其他连接，不发回自己
-_clients = defaultdict(list)
-_lock = threading.Lock()
-
-
-@sock.route("/ws/location")
-def ws_location(ws):
-    room = request.args.get("room") or "default"
-    with _lock:
-        _clients[room].append(ws)
-    print(f"[ws] {room} 接入，当前 {len(_clients[room])} 人", flush=True)
-    try:
-        while True:
-            raw = ws.receive()
-            if raw is None:
-                break
-            try:
-                o = json.loads(raw)
-            except (ValueError, TypeError):
-                continue
-            if not o.get("userId") or o.get("lon") is None or o.get("lat") is None:
-                continue
-            payload = json.dumps({
-                "userId": o.get("userId"),
-                "lon": o.get("lon"),
-                "lat": o.get("lat"),
-                "speed": o.get("speed", 0),
-                "ts": o.get("ts", int(time.time() * 1000)),
-            }, ensure_ascii=False)
-            with _lock:
-                peers = [c for c in _clients[room] if c is not ws]
-            for c in peers:
-                try:
-                    c.send(payload)
-                except Exception:
-                    with _lock:
-                        try:
-                            _clients[room].remove(c)
-                        except ValueError:
-                            pass
-    finally:
-        with _lock:
-            try:
-                _clients[room].remove(ws)
-            except ValueError:
-                pass
-        print(f"[ws] {room} 断开，剩余 {len(_clients[room])} 人", flush=True)
 
 
 if __name__ == "__main__":

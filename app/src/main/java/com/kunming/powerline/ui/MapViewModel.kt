@@ -26,7 +26,6 @@ import com.kunming.powerline.data.repository.ServerFileRepository
 import com.kunming.powerline.ui.map.CustomSourceSpec
 import com.kunming.powerline.data.location.AmapLocationClient
 import com.kunming.powerline.data.location.FixLocation
-import com.kunming.powerline.data.location.LocationShareSocket
 import com.kunming.powerline.data.parser.ImportLine
 import com.kunming.powerline.data.parser.ParseResult
 import com.kunming.powerline.data.parser.ServerImportNaming
@@ -37,7 +36,6 @@ import com.kunming.powerline.data.repository.BatchRepository
 import com.kunming.powerline.data.repository.LineRepository
 import com.kunming.powerline.data.repository.PointRepository
 import com.kunming.powerline.data.repository.ValidationIssue
-import com.kunming.powerline.service.LocationSharingService
 import com.kunming.powerline.ui.layer.MapLayer
 import com.kunming.powerline.ui.map.BasemapType
 import com.kunming.powerline.util.GeoUtils
@@ -91,7 +89,6 @@ class MapViewModel @Inject constructor(
     private val photoRepo: com.kunming.powerline.data.repository.PhotoRepository,
     private val settings: SettingsStore,
     private val amap: AmapLocationClient,
-    private val socket: LocationShareSocket,
     private val serverConfig: ServerConfig,
     val excelParser: com.kunming.powerline.data.parser.ExcelParser,
     val templateGenerator: com.kunming.powerline.data.parser.TemplateGenerator,
@@ -175,9 +172,6 @@ class MapViewModel @Inject constructor(
     private val _lastBatch = MutableStateFlow<ImportBatchEntity?>(null)
     val lastBatch: StateFlow<ImportBatchEntity?> = _lastBatch.asStateFlow()
 
-    val shareConnected: StateFlow<Boolean> = socket.connected
-    val peers = socket.peers
-
     // ---------------- 服务器地址（运行时可改，无需重新打包） ----------------
     val serverAddresses: StateFlow<ServerAddresses> = serverConfig.state
 
@@ -233,7 +227,6 @@ class MapViewModel @Inject constructor(
                         val rec = o.optJSONObject("urls")?.let { u ->
                             ServerAddresses(
                                 pmsBase = u.optString("pmsBase").ifBlank { root },
-                                wsLocation = u.optString("wsLocation"),
                                 // NAS 配了 nginx 8090 时优先用高性能瓦片地址
                                 tileServer = u.optString("tileServerNginx")
                                     .ifBlank { u.optString("tileServer") }
@@ -1355,31 +1348,6 @@ class MapViewModel @Inject constructor(
             lineRepo.rebuildLineGeometry(lineId)
             _layerVersion.value = System.currentTimeMillis()
             _messages.emit("已添加杆塔 $towerNumber")
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // 位置共享
-    // ------------------------------------------------------------------
-    fun startSharing(room: String) {
-        viewModelScope.launch {
-            if (room.isBlank()) {
-                _messages.emit("请输入房间号")
-                return@launch
-            }
-            settings.setRoomId(room)
-            settings.setShareEnabled(true)
-            val user = settings.ensureUserId()
-            LocationSharingService.start(context, room, user)
-            _messages.emit("已开启位置共享：房间 $room")
-        }
-    }
-
-    fun stopSharing() {
-        viewModelScope.launch {
-            settings.setShareEnabled(false)
-            LocationSharingService.stop(context)
-            _messages.emit("已停止位置共享")
         }
     }
 

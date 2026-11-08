@@ -147,7 +147,12 @@ fun MapToolbar(
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        ToolButton(if (playing) "⏸" else "▶", if (playing) "暂停漫游" else "线路漫游", PowerRed) { onPlayToggle() }
+        // 漫游未开始时用中性色，只有播放中才高亮，避免主界面常驻一块突兀的红色
+        ToolButton(
+            if (playing) "⏸" else "▶",
+            if (playing) "暂停漫游" else "线路漫游",
+            if (playing) PowerRed else Color.Unspecified
+        ) { onPlayToggle() }
         ToolButton("📷", "截图", Color.Unspecified, onCamera)
         ToolButton(
             if (following) "🧭" else "🎯",

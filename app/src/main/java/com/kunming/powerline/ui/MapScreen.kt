@@ -1,6 +1,5 @@
 package com.kunming.powerline.ui
 
-import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,14 +69,16 @@ import com.kunming.powerline.ui.map.SmallButton
 import com.kunming.powerline.ui.map.TrueNorthController
 import com.kunming.powerline.ui.map.startLineTour
 import com.kunming.powerline.ui.search.SearchBar
-import com.kunming.powerline.ui.search.SearchHelpDialog
 import com.kunming.powerline.ui.search.SearchResultList
+import com.kunming.powerline.ui.settings.AboutScreen
+import com.kunming.powerline.ui.settings.HelpScreen
 import com.kunming.powerline.ui.settings.SettingsPanel
 import com.kunming.powerline.ui.theme.HintGray
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.ui.theme.PowerRedLight
 import com.kunming.powerline.util.FileSaver
 import com.kunming.powerline.util.GeoUtils
+import com.kunming.powerline.util.VoltageStats
 import kotlinx.coroutines.launch
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.LineString
@@ -119,13 +120,12 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val thematicLayers by vm.thematicLayers.collectAsStateWithLifecycle()
     val thematicFeatures by vm.thematicFeatures.collectAsStateWithLifecycle()
     val photos by vm.photos.collectAsStateWithLifecycle()
-    val peers by vm.peers.collectAsStateWithLifecycle()
-    val shareConnected by vm.shareConnected.collectAsStateWithLifecycle()
     val server by vm.serverAddresses.collectAsStateWithLifecycle()
     val customSources by vm.customSourceSpecs.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
-    var showHelp by remember { mutableStateOf(false) }
+    var showHelpDoc by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
     var showBasemap by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -141,8 +141,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var validationIssues by remember { mutableStateOf<List<ValidationIssue>>(emptyList()) }
     var sectionResult by remember { mutableStateOf<SectionLengthResult?>(null) }
     var syncVersion by remember { mutableStateOf(0) }
-    var roomIdState by remember { mutableStateOf("") }
-    var sharing by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var managerTarget by remember { mutableStateOf<MapLayer?>(null) }
     var showMapData by remember { mutableStateOf(false) }
@@ -178,10 +176,12 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
         enabled = showMapData || showServerSettings || showCustomMapSources || showDataSync ||
-            showServerFiles || managerTarget != null || showImport || showSettings ||
+            showServerFiles || showHelpDoc || showAbout || managerTarget != null || showImport || showSettings ||
             showLayers || showBasemap || showResults || showTowerSheet || drawMode
     ) {
         when {
+            showHelpDoc -> showHelpDoc = false
+            showAbout -> showAbout = false
             showCustomMapSources -> showCustomMapSources = false
             showDataSync -> showDataSync = false
             showServerFiles -> showServerFiles = false
@@ -413,7 +413,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                         vm.search(q)
                         showResults = true
                     },
-                    onHelpClick = { showHelp = true },
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
@@ -505,6 +504,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             VoltageLegend(
                 visible = true,
                 filter = voltageFilter,
+                counts = remember(lines) { VoltageStats.countByLevel(lines.map { it.voltageLevel }) },
                 onToggle = { vm.toggleVoltage(it) }
             )
             Spacer(Modifier.height(6.dp))
@@ -664,13 +664,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         // ---------------- 设置 ----------------
         AnimatedVisibility(showSettings, modifier = Modifier.fillMaxSize()) {
             SettingsPanel(
-                roomId = roomIdState,
-                onRoomIdChange = { roomIdState = it },
-                sharing = sharing,
-                shareConnected = shareConnected,
-                peerCount = peers.size,
-                onStartShare = { vm.startSharing(roomIdState); sharing = true },
-                onStopShare = { vm.stopSharing(); sharing = false },
                 textSize = textSize,
                 onTextSizeChange = { vm.setTextSize(it) },
                 labelZoom = labelZoom,
@@ -681,10 +674,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                     scope.launch { validationIssues = vm.validateLedger() }
                 },
                 validationIssues = validationIssues,
-                onOpenHelp = {
-                    val i = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(com.kunming.powerline.BuildConfig.HELP_DOC_URL))
-                    try { context.startActivity(i) } catch (_: Throwable) {}
-                },
+                onOpenHelp = { showSettings = false; showHelpDoc = true },
+                onOpenAbout = { showSettings = false; showAbout = true },
                 onOpenMapDataSettings = { showSettings = false; showMapData = true },
                 onOpenServerSettings = { showSettings = false; showServerSettings = true },
                 onOpenCustomMapSources = { showSettings = false; showCustomMapSources = true },
@@ -745,7 +736,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             )
         }
 
-        if (showHelp) SearchHelpDialog { showHelp = false }
 
         // ---------------- 创建/导入线路 ----------------
         if (showImport) {
@@ -795,6 +785,21 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 com.kunming.powerline.ui.settings.ServerFilesScreen(
                     vm = vm,
                     onBack = { showServerFiles = false }
+                )
+            }
+        }
+        // ---------------- 使用帮助 / 关于应用（1.5.0） ----------------
+        if (showHelpDoc) {
+            Box(Modifier.fillMaxSize()) {
+                HelpScreen(onBack = { showHelpDoc = false })
+            }
+        }
+        if (showAbout) {
+            Box(Modifier.fillMaxSize()) {
+                AboutScreen(
+                    vm = vm,
+                    onBack = { showAbout = false },
+                    onOpenHelp = { showAbout = false; showHelpDoc = true }
                 )
             }
         }

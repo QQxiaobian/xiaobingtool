@@ -45,14 +45,13 @@ import com.kunming.powerline.ui.theme.HintGray
 import com.kunming.powerline.ui.theme.PowerRedLight
 
 /**
- * 顶部搜索栏 + 感叹号帮助入口
+ * 顶部搜索栏（1.5.0 起移除红色「!」按钮，搜索语法说明移到「设置 → 使用帮助」）
  */
 @Composable
 fun SearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
-    onHelpClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val focus = LocalFocusManager.current
@@ -92,17 +91,6 @@ fun SearchBar(
                     onSearch(query)
                 })
             )
-        }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xE6B71C1C))
-                .clickable { onHelpClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -34,7 +34,7 @@ if [ ! -x "$VENV/bin/python" ]; then
   echo "==> 创建虚拟环境 $VENV"
   "$PYTHON" -m venv "$VENV"
 fi
-if ! "$VENV/bin/python" -c 'import flask, flask_sock, simple_websocket, openpyxl' >/dev/null 2>&1; then
+if ! "$VENV/bin/python" -c 'import flask, openpyxl' >/dev/null 2>&1; then
   echo "==> 安装依赖"
   if [ -n "${PIP_INDEX_URL:-}" ]; then
     "$VENV/bin/pip" install -i "$PIP_INDEX_URL" -r pms/requirements.txt

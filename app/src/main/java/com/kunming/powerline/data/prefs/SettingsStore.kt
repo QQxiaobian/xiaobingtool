@@ -10,7 +10,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,26 +24,21 @@ class SettingsStore @Inject constructor(private val context: Context) {
     private object Keys {
         val BASEMAP = stringPreferencesKey("basemap")
         val TEXT_SIZE = floatPreferencesKey("tower_text_size")
-        val ROOM_ID = stringPreferencesKey("share_room_id")
-        val SHARE_ENABLED = booleanPreferencesKey("share_enabled")
         val SHOW_COMPASS = booleanPreferencesKey("show_compass")
         val TRUE_NORTH = booleanPreferencesKey("true_north")
         val LAYER_STATE = stringPreferencesKey("layer_state")
-        val USER_ID = stringPreferencesKey("user_id")
         val VOLTAGE_FILTER = stringPreferencesKey("voltage_filter")
         val OFFLINE_MODE = booleanPreferencesKey("offline_mode")
         val GROUP_ID = intPreferencesKey("current_group")
         val LABEL_ZOOM = floatPreferencesKey("label_min_zoom")
         // 运行时服务器地址覆盖（空串 = 使用编译期 buildConfigField 默认值）
         val SERVER_PMS = stringPreferencesKey("server_pms_base")
-        val SERVER_WS = stringPreferencesKey("server_ws_location")
         val SERVER_TILES = stringPreferencesKey("server_tile_url")
     }
 
     /** 用户在设置页填写的服务器地址覆盖值 */
     data class ServerOverride(
         val pms: String = "",
-        val ws: String = "",
         val tiles: String = ""
     )
 
@@ -52,8 +46,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
 
     val basemap: Flow<String> = prefs.map { it[Keys.BASEMAP] ?: "YN_SATELLITE" }
     val textSize: Flow<Float> = prefs.map { it[Keys.TEXT_SIZE] ?: 11f }
-    val roomId: Flow<String> = prefs.map { it[Keys.ROOM_ID] ?: "" }
-    val shareEnabled: Flow<Boolean> = prefs.map { it[Keys.SHARE_ENABLED] ?: false }
     val showCompass: Flow<Boolean> = prefs.map { it[Keys.SHOW_COMPASS] ?: true }
     val trueNorth: Flow<Boolean> = prefs.map { it[Keys.TRUE_NORTH] ?: false }
     val offlineMode: Flow<Boolean> = prefs.map { it[Keys.OFFLINE_MODE] ?: false }
@@ -62,19 +54,16 @@ class SettingsStore @Inject constructor(private val context: Context) {
     val groupId: Flow<Int> = prefs.map { it[Keys.GROUP_ID] ?: -1 }
     /** 名称（线路名 / 区域名 / 杆塔号）开始显示的缩放级别 */
     val labelZoom: Flow<Float> = prefs.map { it[Keys.LABEL_ZOOM] ?: 11f }
-    /** 运行时服务器地址覆盖；三项均为空表示用编译期默认 */
+    /** 运行时服务器地址覆盖；两项均为空表示用编译期默认 */
     val serverAddresses: Flow<ServerOverride> = prefs.map {
         ServerOverride(
             it[Keys.SERVER_PMS] ?: "",
-            it[Keys.SERVER_WS] ?: "",
             it[Keys.SERVER_TILES] ?: ""
         )
     }
 
     suspend fun setBasemap(v: String) = context.dataStore.edit { it[Keys.BASEMAP] = v }
     suspend fun setTextSize(v: Float) = context.dataStore.edit { it[Keys.TEXT_SIZE] = v.coerceIn(8f, 20f) }
-    suspend fun setRoomId(v: String) = context.dataStore.edit { it[Keys.ROOM_ID] = v }
-    suspend fun setShareEnabled(v: Boolean) = context.dataStore.edit { it[Keys.SHARE_ENABLED] = v }
     suspend fun setShowCompass(v: Boolean) = context.dataStore.edit { it[Keys.SHOW_COMPASS] = v }
     suspend fun setTrueNorth(v: Boolean) = context.dataStore.edit { it[Keys.TRUE_NORTH] = v }
     suspend fun setOfflineMode(v: Boolean) = context.dataStore.edit { it[Keys.OFFLINE_MODE] = v }
@@ -84,7 +73,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
     suspend fun setLabelZoom(v: Float) = context.dataStore.edit { it[Keys.LABEL_ZOOM] = v.coerceIn(6f, 17f) }
     suspend fun setServerAddresses(o: ServerOverride) = context.dataStore.edit {
         it[Keys.SERVER_PMS] = o.pms
-        it[Keys.SERVER_WS] = o.ws
         it[Keys.SERVER_TILES] = o.tiles
     }
 
@@ -102,12 +90,4 @@ class SettingsStore @Inject constructor(private val context: Context) {
         return Triple(lon, lat, zoom)
     }
 
-    /** 首次使用生成稳定 userId（位置共享用） */
-    suspend fun ensureUserId(): String {
-        val existing = prefs.first()[Keys.USER_ID]
-        if (!existing.isNullOrBlank()) return existing
-        val id = "user-" + UUID.randomUUID().toString().replace("-", "").take(6)
-        context.dataStore.edit { it[Keys.USER_ID] = id }
-        return id
-    }
 }

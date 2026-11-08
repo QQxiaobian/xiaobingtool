@@ -32,10 +32,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val notifPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -49,8 +45,6 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 if (!PermissionHelper.hasLocation(this@MainActivity)) {
                     locationPermission.launch(PermissionHelper.foregroundLocationPermissions())
-                } else if (!PermissionHelper.hasNotification(this@MainActivity)) {
-                    notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         }

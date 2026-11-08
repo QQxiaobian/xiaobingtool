@@ -19,7 +19,6 @@ import javax.inject.Singleton
  */
 data class ServerAddresses(
     val pmsBase: String = BuildConfig.PMS_BASE_URL,
-    val wsLocation: String = BuildConfig.WS_LOCATION_URL,
     val tileServer: String = BuildConfig.TILE_SERVER_URL
 ) {
     companion object {
@@ -35,22 +34,18 @@ data class ServerAddresses(
         }
 
         /**
-         * 从一个主地址推导三件套，供设置页「一键填充」使用。
-         * NAS 端单端口部署时，8080 同时提供 REST / WebSocket / 瓦片：
+         * 从一个主地址推导台账与瓦片地址，供设置页「一键填充」使用。
+         * NAS 端单端口部署时，同一端口同时提供 REST 与瓦片：
          *
          *   http://192.168.1.10:8080/
          *     -> PMS   http://192.168.1.10:8080/
-         *     -> WS    ws://192.168.1.10:8080/ws/location
          *     -> 瓦片  http://192.168.1.10:8080/tiles/{z}/{x}/{y}.png
          */
         fun deriveFrom(input: String): ServerAddresses {
             val base = normalize(input)
-            if (base.isEmpty()) return ServerAddresses("", "", "")
-            val wsScheme = if (base.startsWith("https://", true)) "wss://" else "ws://"
-            val hostPath = base.substringAfter("://").trimEnd('/')
+            if (base.isEmpty()) return ServerAddresses("", "")
             return ServerAddresses(
                 pmsBase = base,
-                wsLocation = "$wsScheme$hostPath/ws/location",
                 tileServer = "${base.trimEnd('/')}/tiles/{z}/{x}/{y}.png"
             )
         }
@@ -83,24 +78,23 @@ class ServerConfig @Inject constructor(private val store: SettingsStore) {
                     pmsBase = o.pms.ifBlank { BuildConfig.PMS_BASE_URL }.let {
                         if (it.endsWith("/")) it else "$it/"
                     },
-                    wsLocation = o.ws.ifBlank { BuildConfig.WS_LOCATION_URL },
                     tileServer = o.tiles.ifBlank { BuildConfig.TILE_SERVER_URL }
                 )
             }
         }
     }
 
-    /** 保存用户填写的三个地址；空串表示回落到编译期默认值 */
+    /** 保存用户填写的台账 / 瓦片地址；空串表示回落到编译期默认值 */
     suspend fun save(a: ServerAddresses) {
         val pms = if (a.pmsBase.endsWith("/")) a.pmsBase else "${a.pmsBase}/"
-        store.setServerAddresses(SettingsStore.ServerOverride(pms, a.wsLocation, a.tileServer))
+        store.setServerAddresses(SettingsStore.ServerOverride(pms, a.tileServer))
         // 立即生效，不必等 DataStore 回调（下一次请求就能用新地址）
         _state.value = a.copy(pmsBase = pms)
     }
 
     /** 恢复为 local.properties 编译进包里的默认地址 */
     suspend fun reset() {
-        store.setServerAddresses(SettingsStore.ServerOverride("", "", ""))
+        store.setServerAddresses(SettingsStore.ServerOverride("", ""))
         _state.value = ServerAddresses()
     }
 }

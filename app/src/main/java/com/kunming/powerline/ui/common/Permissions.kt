@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,22 +16,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
 /**
- * 权限合规（11.5）
- * - Android 12+ 后台定位需引导用户去系统设置选择"始终允许"
- * - Android 13+ 需运行时申请 POST_NOTIFICATIONS
+ * 权限合规：仅申请前台定位所需的权限（真实 GPS）。
+ * 位置共享 / 后台前台服务已移除，不再需要后台定位与通知权限。
  */
 object PermissionHelper {
 
     fun hasLocation(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
-    fun hasBackgroundLocation(context: Context): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
-
-    fun hasNotification(context: Context): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     fun foregroundLocationPermissions(): Array<String> = arrayOf(
         Manifest.permission.ACCESS_FINE_LOCATION,

@@ -68,9 +68,8 @@ echo "================ 部署完成 ================"
 echo "健康检查： http://${NAS_IP}:${PMS_PORT}/health"
 echo "瓦片服务： http://${NAS_IP}:${TILE_PORT}/tiles/0/0/0.png"
 echo
-echo "把下面三行写进 App 工程的 local.properties，然后重新打包 APK："
+echo "把下面两行写进 App 工程的 local.properties，然后重新打包 APK："
 echo "  PMS_BASE_URL=http://${NAS_IP}:${PMS_PORT}/"
-echo "  WS_LOCATION_URL=ws://${NAS_IP}:${PMS_PORT}/ws/location"
 echo "  TILE_SERVER_URL=http://${NAS_IP}:${TILE_PORT}/tiles/{z}/{x}/{y}.png"
 echo
 echo "导入自己的台账： python3 tools/import_excel.py 台账.xlsx --replace"

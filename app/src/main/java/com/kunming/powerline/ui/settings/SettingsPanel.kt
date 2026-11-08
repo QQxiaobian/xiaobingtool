@@ -58,13 +58,6 @@ import com.kunming.powerline.ui.theme.PowerRed
  */
 @Composable
 fun SettingsPanel(
-    roomId: String,
-    onRoomIdChange: (String) -> Unit,
-    sharing: Boolean,
-    shareConnected: Boolean,
-    peerCount: Int,
-    onStartShare: () -> Unit,
-    onStopShare: () -> Unit,
     textSize: Float,
     onTextSizeChange: (Float) -> Unit,
     labelZoom: Float,
@@ -74,6 +67,7 @@ fun SettingsPanel(
     onValidateLedger: () -> Unit,
     validationIssues: List<ValidationIssue>,
     onOpenHelp: () -> Unit,
+    onOpenAbout: () -> Unit,
     onOpenMapDataSettings: () -> Unit,
     onOpenServerSettings: () -> Unit,
     onOpenCustomMapSources: () -> Unit,
@@ -113,41 +107,6 @@ fun SettingsPanel(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
         ) {
-            SectionTitle("位置共享")
-            OutlinedTextField(
-                value = roomId,
-                onValueChange = onRoomIdChange,
-                label = { Text("房间号", fontSize = 12.sp) },
-                placeholder = { Text("输入房间号，如 YN2024", fontSize = 12.sp) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                shape = RoundedCornerShape(10.dp)
-            )
-            Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (sharing) {
-                        if (shareConnected) "共享中 · 在线成员 $peerCount" else "共享中 · 正在连接…"
-                    } else "未开启位置共享",
-                    fontSize = 12.5.sp, color = if (sharing) Color(0xFF2E7D32) else HintGray,
-                    modifier = Modifier.weight(1f)
-                )
-                Button(
-                    onClick = if (sharing) onStopShare else onStartShare,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (sharing) Color(0xFF757575) else PowerRed,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.height(36.dp)
-                ) {
-                    Text(if (sharing) "停止共享" else "开启共享", fontSize = 12.5.sp)
-                }
-            }
-            Text(
-                "开启后将在通知栏常驻前台服务，每 1 秒上报一次位置；Android 12+ 需授予「始终允许」定位权限。",
-                fontSize = 11.sp, color = HintGray, lineHeight = 16.sp
-            )
-
             SectionTitle("地图标签绘制设置")
             Text("杆塔号 / 电缆节点名 文字大小：${textSize.toInt()}sp", fontSize = 12.5.sp, color = Color(0xFF444444))
             Slider(
@@ -204,7 +163,7 @@ fun SettingsPanel(
             }
 
             SectionTitle("服务器（自建 NAS）")
-            SettingRow("地图 / 线路台账 / 位置共享地址，可随时修改", "设置", onOpenServerSettings)
+            SettingRow("地图 / 线路台账地址，可随时修改", "设置", onOpenServerSettings)
 
             SectionTitle("自定义地图与数据")
             SettingRow("自定义地图源 / 地图服务器，可叠加或设为主底图", "管理", onOpenCustomMapSources)
@@ -243,8 +202,9 @@ fun SettingsPanel(
             SectionTitle("标注导出")
             SettingRow("导出全部绘制结果为 GeoJSON", "导出", onExportOverlays)
 
-            SectionTitle("帮助")
-            SettingRow("帮助文档", "打开", onOpenHelp)
+            SectionTitle("帮助与关于")
+            SettingRow("使用帮助（内置离线文档）", "查看", onOpenHelp)
+            SettingRow("关于应用 / 检查更新", "查看", onOpenAbout)
 
             Spacer(Modifier.height(28.dp))
         }

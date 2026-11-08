@@ -57,7 +57,6 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
         mutableStateOf(current.pmsBase.trimEnd('/'))
     }
     var pms by remember(current.pmsBase) { mutableStateOf(current.pmsBase) }
-    var ws by remember(current.wsLocation) { mutableStateOf(current.wsLocation) }
     var tiles by remember(current.tileServer) { mutableStateOf(current.tileServer) }
     var advanced by remember { mutableStateOf(true) }
     var testing by remember { mutableStateOf(false) }
@@ -87,7 +86,7 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                 Button(
                     onClick = {
                         vm.saveServerAddresses(
-                            ServerAddresses(pms.trim(), ws.trim(), tiles.trim())
+                            ServerAddresses(pms.trim(), tiles.trim())
                         ) { msg -> status = msg; success = true }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -106,7 +105,7 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    "连接自建 NAS 的地图 / 线路服务器。只填一个主地址即可，App 会自动推导台账、位置共享与瓦片三个地址。",
+                    "连接自建 NAS 的地图 / 线路服务器。只填一个主地址即可，App 会自动推导台账与瓦片两个地址。",
                     fontSize = 12.sp, color = Color(0xFF5C544A), lineHeight = 18.sp
                 )
                 Spacer(Modifier.height(12.dp))
@@ -133,10 +132,9 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                         onClick = {
                             val d = ServerAddresses.deriveFrom(base)
                             pms = d.pmsBase
-                            ws = d.wsLocation
                             tiles = d.tileServer
                             success = true
-                            status = "已按主地址推导三个地址，可直接保存"
+                            status = "已按主地址推导两个地址，可直接保存"
                         },
                         shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f).height(38.dp)
@@ -151,7 +149,6 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                                 status = msg
                                 if (recommended != null) {
                                     pms = recommended.pmsBase
-                                    ws = recommended.wsLocation
                                     tiles = recommended.tileServer
                                     status = "$msg\n已采用服务端推荐地址"
                                 }
@@ -201,7 +198,6 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                 }
                 if (advanced) {
                     ServerField("PMS 台账服务", "http://192.168.1.10:8080/", pms) { pms = it }
-                    ServerField("位置共享 WebSocket", "ws://192.168.1.10:8080/ws/location", ws) { ws = it }
                     ServerField(
                         "瓦片服务（XYZ）",
                         "http://192.168.1.10:8080/tiles/{z}/{x}/{y}.png",
@@ -209,7 +205,7 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                     ) { tiles = it }
                     Text(
                         "瓦片地址可改成 NAS 上 nginx 的 8090 端口，性能更好；\n" +
-                            "位置共享地址不要带 ?room=，App 会自动追加房间号。",
+                            "保存后立即生效，无需重启 App。",
                         fontSize = 10.5.sp, color = HintGray, lineHeight = 16.sp,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -220,7 +216,7 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text("当前生效", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2B2B2B))
                 Text(
-                    "台账：${current.pmsBase}\n共享：${current.wsLocation}\n瓦片：${current.tileServer}",
+                    "台账：${current.pmsBase}\n瓦片：${current.tileServer}",
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 17.sp,
                     modifier = Modifier.padding(top = 4.dp)
                 )
@@ -235,7 +231,6 @@ fun ServerSettingsScreen(vm: MapViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "说明：保存后立即生效，PMS 台账与瓦片无需重启 App；\n" +
-                        "若位置共享正在运行，请停止后重新开启才会连到新地址。\n" +
                         "瓦片地址变化会自动重建底图，镜头位置保持不变。",
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 17.sp
                 )

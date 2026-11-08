@@ -200,6 +200,7 @@ private fun geometryLabel(t: String): String = when (t) {
 fun VoltageLegend(
     visible: Boolean,
     filter: Set<Int>,
+    counts: Map<Int, Int> = emptyMap(),
     onToggle: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -210,7 +211,7 @@ fun VoltageLegend(
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Text("电压等级", color = PanelTextSub, fontSize = 10.sp)
+            Text("电压等级 · 线路条数", color = PanelTextSub, fontSize = 10.sp)
             VoltagePaletteUi.styles.forEach { s ->
                 val on = filter.contains(s.level)
                 Row(
@@ -227,6 +228,12 @@ fun VoltageLegend(
                     Text(
                         s.label,
                         color = if (on) PanelText else Color(0x661C1B1B),
+                        fontSize = 10.sp,
+                        modifier = Modifier.width(46.dp)
+                    )
+                    Text(
+                        "${counts[s.level] ?: 0} 条",
+                        color = if (on) PanelTextSub else Color(0x661C1B1B),
                         fontSize = 10.sp
                     )
                 }
