@@ -45,7 +45,7 @@
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
 | `:app:testDebugUnitTest` | ✅ 120 项全部通过 |
-| 签名校验 `apksigner verify` | ✅ 通过（v2 / v3；minSdk 26 起系统原生支持 v2 签名） |
+| 签名校验 `apksigner verify` | ✅ 通过（v1 + v2 + v3 三签齐全；默认显示 `v1: false` 仅因 minSdk 26 只走 v2 验证路径，`--min-sdk-version 23` 可见 v1=true，详见 4.2.1） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
 
@@ -192,6 +192,25 @@ Docker Compose 工程，包含瓦片服务（nginx）、PMS 台账 REST 与位�
 Release 使用 `local.properties` 中的签名配置；若未配置则回退 debug 签名（便于调试）。
 本工程已内置一套演示密钥 `keystore/powerline-release.jks`（口令 `powerline2024`，别名 `powerline`），
 **正式上线请替换为贵单位自有密钥并妥善保管**，否则后续升级会因签名不一致无法覆盖安装。
+
+#### 4.2.1 签名组成与校验
+
+Release 包同时包含 **v1（JAR）+ v2 + v3** 三种签名，且使用同一张证书：
+
+| 位置 | 内容 |
+|---|---|
+| `META-INF/MANIFEST.MF` / `CERT.SF` / `CERT.RSA` | v1 JAR 签名文件（"签名文件"指的就是这三个） |
+| APK Signing Block（ZIP 中央目录之前） | v2 / v3 签名 |
+
+`app/build.gradle.kts` 中 `enableV1Signing` / `enableV2Signing` / `enableV3Signing`
+均为 `true`。注意 `apksigner verify` 不带参数时会按 APK 声明的 `minSdk=26` 选择验证路径，
+Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v1 scheme: false`
+表示「v1 未参与本次验证」，**不是签名缺失**。用
+`apksigner verify --min-sdk-version 23 --verbose app-release.apk`
+可见 `v1 / v2 / v3` 全部为 `true`。
+
+交付包内随附 `PowerLine-1.2.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
+`PowerLine-1.2.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
 
 ### 4.3 分 ABI 打包（减小体积，可选）
 
@@ -416,6 +435,15 @@ v1.2.0 提供的是 **App 内自用的模拟定位**（设置 → 演示与测�
 ---
 
 ## 8. 常见问题
+
+**Q: 提示「安装包没有签名文件 / 应用未安装 / 解析包错误」？**
+APK 本身 **v1 + v2 + v3 签名齐全**（见 4.2.1），绝大多数安装失败是**下载文件不完整**：
+先核对大小必须正好是 58,444,486 字节、SHA-256 与交付包 `PowerLine-1.2.0-CHECKSUMS.txt`
+一致；GitHub Release 的 58 MB 大文件在国内网络下容易中断或被截断，建议用支持断点续传的
+工具下载后比对哈希。其余按顺序排查：微信 / QQ 传输被追加 `.1` 后缀或转存损坏、
+系统低于 Android 8.0、国产 ROM「纯净模式 / 安装拦截」、旧版签名不一致需先卸载。
+兜底执行 `adb install -r PowerLine-1.2.0.apk` 看 `INSTALL_FAILED_*` 确切错误码，
+完整清单见交付包 `CHECKSUMS.txt` 第四节，或运行 `bash verify-apk.sh` 自检。
 
 **Q: 地图白屏 / 只显示网格？**
 检查 `TIANDITU_KEY` 是否有效，以及是否在天地图控制台把应用的「服务配额」用尽。抓包可见 `tk` 无效返回 403。
