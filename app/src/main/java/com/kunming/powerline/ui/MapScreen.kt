@@ -150,6 +150,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showServerSettings by remember { mutableStateOf(false) }
     var showCustomMapSources by remember { mutableStateOf(false) }
     var showDataSync by remember { mutableStateOf(false) }
+    var showServerFiles by remember { mutableStateOf(false) }
     var showMockLocation by remember { mutableStateOf(false) }
     // 点击专题区域/点位后弹出的信息卡
     var thematicSheet by remember { mutableStateOf<com.kunming.powerline.data.local.entity.ThematicFeatureEntity?>(null) }
@@ -179,12 +180,13 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
         enabled = showMapData || showServerSettings || showCustomMapSources || showDataSync ||
-            showMockLocation || managerTarget != null || showImport || showSettings ||
+            showServerFiles || showMockLocation || managerTarget != null || showImport || showSettings ||
             showLayers || showBasemap || showResults || showTowerSheet || drawMode
     ) {
         when {
             showCustomMapSources -> showCustomMapSources = false
             showDataSync -> showDataSync = false
+            showServerFiles -> showServerFiles = false
             showMockLocation -> showMockLocation = false
             showServerSettings -> showServerSettings = false
             showMapData -> showMapData = false
@@ -690,6 +692,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 onOpenServerSettings = { showSettings = false; showServerSettings = true },
                 onOpenCustomMapSources = { showSettings = false; showCustomMapSources = true },
                 onOpenDataSync = { showSettings = false; showDataSync = true },
+                onOpenServerFiles = { showSettings = false; showServerFiles = true },
                 onOpenMockLocation = { showSettings = false; showMockLocation = true },
                 onOpenGroupSettings = { navInfo = "地图组设置：按区域 / 单位分组" },
                 onBack = { showSettings = false },
@@ -806,6 +809,14 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 com.kunming.powerline.ui.settings.DataSyncScreen(
                     vm = vm,
                     onBack = { showDataSync = false }
+                )
+            }
+        }
+        if (showServerFiles) {
+            Box(Modifier.fillMaxSize()) {
+                com.kunming.powerline.ui.settings.ServerFilesScreen(
+                    vm = vm,
+                    onBack = { showServerFiles = false }
                 )
             }
         }

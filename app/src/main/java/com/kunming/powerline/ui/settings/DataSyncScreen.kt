@@ -88,6 +88,28 @@ fun DataSyncScreen(vm: MapViewModel, onBack: () -> Unit) {
         }
     }
 
+    // 1.3.0：一键全量导出 / 导入（无需填名称、无需选类型）
+    val exportAllLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) vm.exportAllDataset(uri) { ok, msg -> tell(ok, msg) }
+    }
+    val exportGeoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) vm.exportAllGeoJson(uri) { ok, msg -> tell(ok, msg) }
+    }
+    val importAllLineLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) vm.importAny(uri, false) { ok, msg -> tell(ok, msg); if (ok) refresh() }
+    }
+    val importAllLayerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) vm.importAny(uri, true) { ok, msg -> tell(ok, msg); if (ok) refresh() }
+    }
+
     LaunchedEffect(Unit) { refresh() }
 
     LightPanelTheme {
@@ -130,8 +152,47 @@ fun DataSyncScreen(vm: MapViewModel, onBack: () -> Unit) {
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 16.sp
                 )
 
-                // ---------------- 上传到服务器 ----------------
+                // ---------------- 全部线路 / 图层 导出导入（1.3.0） ----------------
                 Spacer(Modifier.height(14.dp))
+                SectionTitle("全部线路 / 图层 导出与导入")
+                Text(
+                    "一键导出本机全部图层、线路与杆塔，无需填名称或选类型。" +
+                        "「备份 JSON」可无损导回本 App；「GeoJSON」用于 QGIS / Google Earth 等外部系统。",
+                    fontSize = 11.sp, color = Color(0xFF5C544A), lineHeight = 17.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { exportAllLauncher.launch("全量备份-${System.currentTimeMillis()}.json") },
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) { Text("全量导出 备份JSON", fontSize = 11.5.sp) }
+                    OutlinedButton(
+                        onClick = { exportGeoLauncher.launch("全量数据-${System.currentTimeMillis()}.geojson") },
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) { Text("全量导出 GeoJSON", fontSize = 11.5.sp) }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { importAllLineLauncher.launch(arrayOf("*/*")) },
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) { Text("全量导入 · 线路", fontSize = 11.5.sp) }
+                    OutlinedButton(
+                        onClick = { importAllLayerLauncher.launch(arrayOf("*/*")) },
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) { Text("全量导入 · 图层", fontSize = 11.5.sp) }
+                }
+                Text(
+                    "导入会自动识别 App 全量备份 JSON 并无损还原；其它格式按所选「线路」或「图层」解析。",
+                    fontSize = 10.sp, color = HintGray, lineHeight = 16.sp
+                )
+
+                // ---------------- 上传到服务器 ----------------
+                Spacer(Modifier.height(16.dp))
                 SectionTitle("上传本机数据到服务器")
                 OutlinedTextField(
                     value = name,

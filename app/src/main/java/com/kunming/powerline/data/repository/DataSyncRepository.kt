@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.kunming.powerline.data.local.AppDatabase
 import com.kunming.powerline.data.local.entity.LineEntity
+import com.kunming.powerline.data.parser.GeoJsonExporter
 import com.kunming.powerline.data.local.entity.ThematicFeatureEntity
 import com.kunming.powerline.data.local.entity.ThematicLayerEntity
 import com.kunming.powerline.data.local.entity.TowerEntity
@@ -163,6 +164,25 @@ class DataSyncRepository @Inject constructor(
                 "已导出本地 JSON：${DatasetStats.summary(b)}"
             }
         }
+
+    /** 一键「全量导出」：无需填名称 / 选类型，导出所有图层 + 所有线路 + 杆塔（无损备份） */
+    suspend fun exportAllToUri(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val name = "全量备份-" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.CHINA).format(Date())
+            val b = buildLocal(name, DatasetBundleDto.KIND_MIXED)
+            require(FileSaver.writeText(context, uri, adapter.indent("  ").toJson(b))) { "写入文件失败" }
+            "已导出全量备份：${DatasetStats.summary(b)}"
+        }
+    }
+
+    /** 一键「全量导出 GeoJSON」：通用交换格式，可被 QGIS / Google Earth 打开 */
+    suspend fun exportAllGeoJsonToUri(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val b = buildLocal("全量 GeoJSON", DatasetBundleDto.KIND_MIXED)
+            require(FileSaver.writeText(context, uri, GeoJsonExporter.export(b))) { "写入文件失败" }
+            "已导出 GeoJSON：${GeoJsonExporter.featureCount(b)} 个要素（${DatasetStats.summary(b)}）"
+        }
+    }
 
     /** 从本地 JSON 文件导入（与 NAS 下载走同一套合并逻辑） */
     suspend fun importFromUri(uri: Uri): Result<String> = withContext(Dispatchers.IO) {

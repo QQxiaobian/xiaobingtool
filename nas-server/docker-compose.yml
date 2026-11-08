@@ -20,6 +20,9 @@ services:
       TZ: Asia/Shanghai
       PMS_DB: /data/pms.db
       TILE_ROOT: /data/tiles
+      # 1.3.0 原始地理文件库：把 KML/KMZ/GeoJSON/GPX/SHP(zip) 拷到
+      # ./data/files/ 即可在 App「服务器文件」里直接加载，无需先上传
+      FILE_ROOT: /data/files
       # 留空 = 不校验（App 的 OkHttp 未加自定义 Header，开启会导致连不上）
       API_TOKEN: "${API_TOKEN:-}"
       # 首次启动写入 3 条示例线路便于验收；正式导入后设为 0

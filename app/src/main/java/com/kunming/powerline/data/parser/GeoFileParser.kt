@@ -25,9 +25,14 @@ class GeoFileParser @Inject constructor(
     private val context: Context
 ) {
 
-    suspend fun parse(uri: Uri, onProgress: (Float) -> Unit = {}): Result<ParseResult> = withContext(Dispatchers.IO) {
+    suspend fun parse(
+        uri: Uri,
+        fileName: String = "",
+        onProgress: (Float) -> Unit = {}
+    ): Result<ParseResult> = withContext(Dispatchers.IO) {
         try {
-            val name = queryName(uri) ?: ""
+            // 服务器下载的文件由调用方显式传入原始文件名（KMZ/SHP 靠扩展名分派，不能靠嗅探）
+            val name = fileName.ifBlank { queryName(uri) ?: "" }
             val lower = name.lowercase()
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext Result.failure(Exception("无法读取文件"))
@@ -392,9 +397,9 @@ class GeoFileParser @Inject constructor(
     /**
      * 把地理信息文件解析成"专题图层"：保留原始点、线、面，不再解释成线路+杆塔。
      */
-    suspend fun parseThematic(uri: Uri): Result<ThematicParseResult> = withContext(Dispatchers.IO) {
+    suspend fun parseThematic(uri: Uri, overrideName: String = ""): Result<ThematicParseResult> = withContext(Dispatchers.IO) {
         try {
-            val fileName = queryName(uri) ?: ""
+            val fileName = overrideName.ifBlank { queryName(uri) ?: "" }
             val lower = fileName.lowercase()
             val baseName = fileName.substringBeforeLast('.')
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }

@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.2.0（versionCode 22）
+- **当前版本**：1.3.0（versionCode 23）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -35,6 +35,8 @@
 | 自定义图层（1.2.0） | 可手动新建空白图层（名称 / 几何类型 / 颜色 / 备注）；左侧图层面板列出全部自定义图层并**逐个控制是否显示**；图层可导入要素、改归属、转线路，或用服务器数据填充 |
 | 数据同步（1.2.0） | NAS / 服务器 / 本地 JSON 三路：上传本机图层与线路数据、浏览并下载服务器数据集、删除远端数据集；导出 / 导入同一份 `powerline-dataset/1` JSON 便于离线流转；按图层 id、线路名、杆塔号 UPSERT 合并 |
 | App 内模拟定位（1.2.0） | 仅本 App 内生效的演示 / 测试定位（无 GPS 信号时手动补录点位）；**不注入系统位置、不影响其他应用、不需要 root**；顶部显示「模拟定位」标记，位置共享与巡检轨迹仍使用真实 GPS |
+| 服务器原始文件（1.3.0） | 直接把 KML / KMZ / GeoJSON / GPX / SHP(zip) 放进 NAS 的 `files` 目录，App 自动列出、下载并导入为「线路」或「专题图层」；也可从手机上传 / 删除服务器文件 |
+| 全量导出导入（1.3.0） | 一键导出本机**全部**图层 + 线路 + 杆塔，无需填名称 / 选类型；「备份 JSON」可无损还原，「GeoJSON」供 QGIS / Google Earth 等外部系统交换；导入自动识别备份包或按线路 / 图层解析 |
 
 ---
 
@@ -44,7 +46,7 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 120 项全部通过 |
+| `:app:testDebugUnitTest` | ✅ 133 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1 + v2 + v3 三签齐全；默认显示 `v1: false` 仅因 minSdk 26 只走 v2 验证路径，`--min-sdk-version 23` 可见 v1=true，详见 4.2.1） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -62,6 +64,8 @@
 - `CustomMapSourceTest`（1.2.0）：XYZ 模板校验、`{s}` 子域展开、TMS 方案、JSON 转义、自定义主底图与叠加层的 style 生成
 - `DatasetModelTest`（1.2.0）：数据集统计 / 类型推断 / 名称校验 / 元数据 / Moshi 序列化往返
 - `MockLocationTest`（1.2.0）：App 内模拟定位的启用条件、坐标范围与默认精度
+- `GeoJsonExporterTest`（1.3.0）：全量 GeoJSON 结构 / 要素数量 / 属性 / 转义 / 边界数据
+- `ServerFileKindTest`（1.3.0）：服务器文件扩展名分类、二进制标记、本地文件名清洗
 
 ---
 
@@ -209,8 +213,8 @@ Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v
 `apksigner verify --min-sdk-version 23 --verbose app-release.apk`
 可见 `v1 / v2 / v3` 全部为 `true`。
 
-交付包内随附 `PowerLine-1.2.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
-`PowerLine-1.2.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
+交付包内随附 `PowerLine-1.3.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
+`PowerLine-1.3.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
 
 ### 4.3 分 ABI 打包（减小体积，可选）
 
@@ -279,7 +283,8 @@ app/src/main/java/com/kunming/powerline/
 │   │   └── LineEditScreen.kt       线路编辑
 │   ├── settings/                   设置面板、服务器地址、地图数据设置
 │   │   ├── CustomMapSourceScreen.kt  1.2.0 自定义地图源管理
-│   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步（上传/下载/本地 JSON）
+│   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步；1.3.0 增加全量导出导入
+│   │   ├── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入
 │   │   └── MockLocationScreen.kt     1.2.0 App 内模拟定位（明确非系统级）
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
@@ -287,8 +292,9 @@ app/src/main/java/com/kunming/powerline/
 └── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif
 
 nas-server/                         NAS 自建服务（Docker Compose，8080 单端口）
-├── pms/app.py                      Flask：台账 REST / 数据集 API / 位置共享 WS / XYZ 瓦片
+├── pms/app.py                      Flask：台账 REST / 数据集 API / 原始文件库 / 位置共享 WS / XYZ 瓦片
 ├── tools/dataset_cli.py            1.2.0 数据集命令行管理（list/upload/download/delete）
+├── tools/file_cli.py               1.3.0 服务器原始文件命令行管理（list/upload/download/delete）
 ├── nginx/default.conf              可选 8090 瓦片静态服务
 └── README.md                       部署与验收说明
 ```
@@ -432,17 +438,47 @@ v1.2.0 提供的是 **App 内自用的模拟定位**（设置 → 演示与测�
 且巡检业务本身依赖真实、可审计的位置记录。位置共享与巡检轨迹始终读取真实 GPS，
 模拟坐标不会被上报；开启时主界面顶部常驻「模拟定位」标记。
 
+### 7.13 加载服务器上的 KML 等原始文件
+
+服务端扫描 NAS 的 `files` 目录（默认 `/data/files`，docker compose 里是 `nas-server/data/files/`），
+App「设置 → 自定义地图与数据 → 服务器文件」自动列出
+`KML / KMZ / GeoJSON / JSON / GPX / SHP(zip)`：
+
+- **最常用**：直接把文件拷进 NAS 共享目录，不必先在 App 里上传；`/health` 的 `files` 字段可确认扫描结果。
+- 每个文件可选「导入为线路」（解析成线路 + 杆塔）或「导入为图层」（保留原始点 / 线 / 面），
+  与本地文件导入走同一套 `GeoFileParser` / `ThematicParser`。
+- 下载后落到 App 私有缓存目录，服务器上的原文件保持不动，可重复导入。
+- 也可从手机上传本地文件、删除服务器文件；电脑端用 `nas-server/tools/file_cli.py` 批量管理。
+
+> 中文文件名统一走 `X-File-Name`（UTF-8 URL 编码），避免 multipart header 乱码；
+> 服务端按文件名哈希生成 ASCII `id`，中文名不会破坏下载 URL。
+> 与 `/api/datasets` 的结构化数据集互不冲突：一个是原始数据文件、一个是打包后的 JSON。
+
+### 7.14 全部线路 / 图层 导出与导入
+
+「设置 → 自定义地图与数据 → 数据同步」顶部新增一键全量入口，**无需填名称、无需选图层/线路类型**：
+
+| 动作 | 格式 | 用途 |
+|---|---|---|
+| 全量导出 备份 JSON | `powerline-dataset/1` | 无损：图层显示设置、要素属性、线路台账、杆塔编号全部保留，可在另一台手机完整还原 |
+| 全量导出 GeoJSON | `FeatureCollection` | 通用交换：线路 `LineString`、杆塔 `Point`、专题要素原始 geometry，QGIS / Google Earth 可直接打开 |
+| 全量导入 · 线路 / 图层 | 自动识别 | 先嗅探是不是 App 备份包；是则无损还原，否则按所选「线路」或「图层」解析地理文件 |
+
+导入按图层 id、线路名、杆塔号 UPSERT 合并，重复导入不会产生重复数据。
+GeoJSON 是交换格式，语义转换时杆塔编号可能变化；**App 之间迁移请用备份 JSON**。
+`GeoJsonExporter` 为纯 Kotlin 实现（不依赖 `org.json`），有 7 项单元测试覆盖结构与转义。
+
 ---
 
 ## 8. 常见问题
 
 **Q: 提示「安装包没有签名文件 / 应用未安装 / 解析包错误」？**
 APK 本身 **v1 + v2 + v3 签名齐全**（见 4.2.1），绝大多数安装失败是**下载文件不完整**：
-先核对大小必须正好是 58,444,486 字节、SHA-256 与交付包 `PowerLine-1.2.0-CHECKSUMS.txt`
-一致；GitHub Release 的 58 MB 大文件在国内网络下容易中断或被截断，建议用支持断点续传的
+先核对文件大小与 SHA-256 是否与交付包内对应版本的 `PowerLine-<版本>-CHECKSUMS.txt`
+一致；GitHub Release 的大文件在国内网络下容易中断或被截断，建议用支持断点续传的
 工具下载后比对哈希。其余按顺序排查：微信 / QQ 传输被追加 `.1` 后缀或转存损坏、
 系统低于 Android 8.0、国产 ROM「纯净模式 / 安装拦截」、旧版签名不一致需先卸载。
-兜底执行 `adb install -r PowerLine-1.2.0.apk` 看 `INSTALL_FAILED_*` 确切错误码，
+兜底执行 `adb install -r PowerLine-<版本>.apk` 看 `INSTALL_FAILED_*` 确切错误码，
 完整清单见交付包 `CHECKSUMS.txt` 第四节，或运行 `bash verify-apk.sh` 自检。
 
 **Q: 地图白屏 / 只显示网格？**
@@ -483,6 +519,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.3.0 | 2026-11 | 服务器原始文件库（直接加载 NAS 上的 KML/KMZ/GeoJSON/GPX/SHP，可导入为线路或图层、可上传/删除）、全量线路/图层导出导入（无损备份 JSON + 通用 GeoJSON）、NAS `/api/files` 系列接口与 `file_cli.py`、`GeoJsonExporter` / `ServerFileRepository`、133 项单测 |
 | 1.2.0 | 2026-11 | 自定义地图源 / 地图服务器（可叠加、可设主底图）、自定义图层新建与逐层显示开关、NAS 数据同步（上传 / 下载 / 本地 JSON）、App 内模拟定位（仅本 App 生效，不提供系统级 root 虚拟定位）、Room v4 迁移 |
 | 1.1.1 | 2026-11 | 服务器地址改为运行时可配置（设置页填 NAS 主地址 → 测试连接 → 自动填充三地址）、PMS 请求动态改写、瓦片/WS 地址即时生效并自动重建底图；新增 NAS 自建服务部署工程 `nas-server/`（Docker Compose + 台账 API + 位置共享 + 瓦片服务） |
 | 1.1.0 | 2026-11 | 区域名称 3 级起直接显示（边界线也纳入）、业务点位名称统一收进 12 级起的独立层、主界面按钮/搜索栏/提示条改浅米色、杆塔图标低缩放跳过绘制 |

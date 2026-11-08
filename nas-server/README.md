@@ -29,13 +29,17 @@ App 里已经预留了三个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 | GET | `/api/units` | `{"units":[...]}` |
 | GET | `/api/import/pms-ledger?lineIds=a,b&includeTowers=true...` | `PmsLedgerBundle`（4 个数组） |
 | POST | `/api/import/pms-ledger` | `ImportAckDto`（按主键 UPSERT） |
-| GET | `/health` | 服务状态与统计（1.2.0 起含 `datasets` 数量） |
+| GET | `/health` | 服务状态与统计（1.2.0 起含 `datasets`、1.3.0 起含 `files` 数量） |
 | GET | `/api/datasets` | `DatasetMetaDto[]`（仅元数据，传输量小） |
 | GET | `/api/datasets/{id}` | 完整 `DatasetBundleDto`（图层 + 要素 + 线路台账） |
 | GET | `/api/datasets/{id}/download` | 下载为 `.json` 文件 |
 | POST | `/api/datasets` | 上传 / 覆盖数据集（同 id 递增 version） |
 | POST | `/api/datasets/import` | 上传本地 JSON 文件导入 |
 | DELETE | `/api/datasets/{id}` | 删除数据集 |
+| GET | `/api/files` | `ServerFileDto[]`（扫描 files 目录，仅元数据） |
+| GET | `/api/files/{id}/download` | 下载原始文件字节（KML/KMZ/GeoJSON/GPX/SHP） |
+| POST | `/api/files` | 上传原始文件（multipart `file`；中文名走 `X-File-Name`） |
+| DELETE | `/api/files/{id}` | 删除服务器文件 |
 
 WebSocket：`ws://<NAS>:8080/ws/location?room=xxx`，App 会自动在地址后补 `?room=`。
 客户端上报 `{"userId","lon","lat","speed","ts"}`，服务端广播给同房间其他人（不发回自己）。
@@ -61,6 +65,34 @@ python3 tools/dataset_cli.py delete DS-xxxxxxxx
 ```
 
 也可直接用浏览器打开 `http://<NAS>:8080/api/datasets/<id>/download` 下载 JSON。
+
+### 原始文件库（1.3.0 新增）
+
+**这是「直接加载服务器上的 KML」的入口**：把 `KML / KMZ / GeoJSON / JSON / GPX / SHP / ZIP`
+拷进 NAS 的 `nas-server/data/files/` 目录（容器内 `/data/files`，可用 `FILE_ROOT` 环境变量改），
+服务端会自动扫描，App「设置 → 自定义地图与数据 → 服务器文件」即可列出并下载导入。
+**不需要先在 App 里上传，也不需要额外端口**，仍走 8080 的 `PMS_BASE_URL`。
+
+- 扩展名白名单：`.kml .kmz .geojson .json .gpx .shp .zip`；单文件上限 200 MB。
+- `id` = 文件名的 SHA-256 前 16 位，稳定且 ASCII 安全，中文文件名不会破坏下载 URL。
+- 上传时真实（可能含中文）文件名放在 `X-File-Name`（UTF-8 URL 编码），
+  避免 OkHttp 的 multipart header 在 Werkzeug 侧乱码；multipart 的 `filename` 用 ASCII 占位。
+- `/health` 新增 `files` / `fileRoot` 字段，`version` 升级为 `1.3`。
+- 与 `datasets` 表的结构化 JSON 数据包互不冲突，两者可同时使用。
+
+命令行工具（`tools/file_cli.py`，只用 Python 标准库）：
+
+```bash
+python3 tools/file_cli.py --base http://192.168.1.10:8080 list
+python3 tools/file_cli.py upload 行政区划.kml
+python3 tools/file_cli.py download <id> -o 行政区划.kml
+python3 tools/file_cli.py delete <id>
+# 服务端开启 API_TOKEN 时加 --token <token>
+```
+
+> 升级：用新版 `pms/app.py` 与 `tools/file_cli.py` 覆盖 NAS 后执行
+> `docker compose up -d --build`，确认 `/health` 返回 `"version": "1.3"` 与 `files` 字段即可。
+> 老的台账与数据集数据不受影响（无需改数据库表）。
 
 ## 二、部署（3 步）
 
@@ -228,7 +260,7 @@ App 上逐项确认：
 | 台账列表为空 | 看 `/health` 的 `pmsLines`；确认已跑 `import_excel.py`；`SEED_DEMO=0` 且未导入时就是空 |
 | 容器起不来 | `docker compose logs -f pms`；8080/8090 是否被 NAS 上其他服务占用（改 `.env` 端口） |
 
-## 九、App 端实现说明（v1.1.1 运行时配置 / v1.2.0 数据同步）
+## 九、App 端实现说明（v1.1.1 运行时配置 / v1.2.0 数据同步 / v1.3.0 原始文件与全量交换）
 
 | 位置 | 做法 |
 |---|---|
@@ -241,6 +273,11 @@ App 上逐项确认：
 | `data/repository/DataSyncRepository.kt` | v1.2.0 组装本机图层 + 线路台账为 `DatasetBundleDto`，上传、下载合并、本地 JSON 导入导出 |
 | `ui/settings/DataSyncScreen.kt` | v1.2.0 上传 / 下载 / 删除 / 导出 / 导入三路入口 |
 | `ui/settings/CustomMapSourceScreen.kt` | v1.2.0 自定义 XYZ / TMS 地图源管理，可叠加或设为主底图 |
+| `data/remote/model/ServerFileModels.kt` | v1.3.0 服务器文件 DTO 与扩展名分类（纯 Kotlin，可单测） |
+| `data/repository/ServerFileRepository.kt` | v1.3.0 列出 / 流式下载到缓存 / 上传 / 删除服务器原始文件 |
+| `ui/settings/ServerFilesScreen.kt` | v1.3.0 浏览服务器文件，下载后按「线路」或「图层」导入 |
+| `data/parser/GeoJsonExporter.kt` | v1.3.0 全量数据集 → 通用 GeoJSON FeatureCollection（纯 Kotlin） |
+| `ui/settings/DataSyncScreen.kt` | v1.3.0 顶部新增一键全量导出（备份 JSON / GeoJSON）与全量导入 |
 
 因此换 NAS IP 只需在 App 设置里改一次，历史安装包无需重发；
-**数据同步也走同一个 8080 地址，不需要额外开端口或改 nginx**。
+**数据同步与原始文件库都走同一个 8080 地址，不需要额外开端口或改 nginx**。

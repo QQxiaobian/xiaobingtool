@@ -7,12 +7,19 @@ import com.kunming.powerline.data.remote.model.PmsLedgerBundle
 import com.kunming.powerline.data.remote.model.PmsLineDto
 import com.kunming.powerline.data.remote.model.PmsTowerDto
 import com.kunming.powerline.data.remote.model.PmsUnitsDto
+import com.kunming.powerline.data.remote.model.ServerFileDto
+import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 /**
  * PMS / 生产管理系统内网接口
@@ -61,4 +68,29 @@ interface PmsApi {
 
     @DELETE("api/datasets/{id}")
     suspend fun deleteDataset(@Path("id") id: String): ImportAckDto
+
+    // ---------------- NAS 原始文件库（1.3.0：KML/KMZ/GeoJSON/GPX/SHP） ----------------
+
+    /** 列出服务器 files 目录里可直接下载的原始文件（仅元数据） */
+    @GET("api/files")
+    suspend fun listServerFiles(): List<ServerFileDto>
+
+    /** 流式下载原始文件字节；@Streaming 避免大文件一次性进内存 */
+    @Streaming
+    @GET("api/files/{id}/download")
+    suspend fun downloadServerFile(@Path("id") id: String): ResponseBody
+
+    /**
+     * 上传原始文件。multipart 的 filename 用 ASCII 占位，
+     * 真实（可能含中文）文件名放在 X-File-Name，UTF-8 URL 编码后传输。
+     */
+    @Multipart
+    @POST("api/files")
+    suspend fun uploadServerFile(
+        @Part file: MultipartBody.Part,
+        @Header("X-File-Name") encodedName: String
+    ): ImportAckDto
+
+    @DELETE("api/files/{id}")
+    suspend fun deleteServerFile(@Path("id") id: String): ImportAckDto
 }

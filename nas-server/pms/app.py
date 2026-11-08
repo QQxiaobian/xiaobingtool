@@ -17,6 +17,7 @@
 数据落 SQLite（/data/pms.db），瓦片是纯文件目录（/data/tiles）。
 无任何外部数据库依赖，适合群晖 / 威联通 / 绿联 / 极空间 Container Manager。
 """
+import hashlib
 import json
 import os
 import sqlite3
@@ -24,12 +25,18 @@ import threading
 import time
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import unquote
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_sock import Sock
 
 DB_PATH = os.environ.get("PMS_DB", "/data/pms.db")
 TILE_ROOT = Path(os.environ.get("TILE_ROOT", "/data/tiles"))
+# 1.3.0：原始地理文件库，直接把 KML/KMZ/GeoJSON/GPX/SHP(zip) 放进这个目录，
+# App「服务器文件」页会自动列出并支持下载后导入，不需要先在 App 里上传。
+FILE_ROOT = Path(os.environ.get("FILE_ROOT", "/data/files"))
+ALLOWED_FILE_EXT = {".kml", ".kmz", ".geojson", ".json", ".gpx", ".shp", ".zip"}
+MAX_FILE_BYTES = 200 * 1024 * 1024
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()  # 留空 = 不校验，避免 App 端加不了 Header
 SEED_DEMO = os.environ.get("SEED_DEMO", "1") == "1"
 PORT = int(os.environ.get("PORT", "8080"))
@@ -102,6 +109,7 @@ def db():
 def init_db():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     TILE_ROOT.mkdir(parents=True, exist_ok=True)
+    FILE_ROOT.mkdir(parents=True, exist_ok=True)
     for sub in ("yn_img", "cn_img", "yn_vec"):
         (TILE_ROOT / sub).mkdir(parents=True, exist_ok=True)
     with db() as c:
@@ -170,6 +178,7 @@ def health():
         nt = c.execute("SELECT COUNT(*) FROM towers").fetchone()[0]
         nd = c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
     tiles = sum(1 for _ in TILE_ROOT.rglob("*.png")) if TILE_ROOT.exists() else 0
+    nf = len(scan_server_files())
 
     prefix = request.headers.get("X-Forwarded-Prefix", "").rstrip("/")
     root = request.host_url.rstrip("/") + prefix
@@ -187,19 +196,24 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.2",
+        "version": "1.3",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,
+        "files": nf,
         "tiles": tiles,
         "tileRoot": str(TILE_ROOT),
+        "fileRoot": str(FILE_ROOT),
         "auth": "on" if API_TOKEN else "off",
         "urls": urls,
-        "hint": "App 只需填 pmsBase 一个地址；1.2.0 起可在「数据同步」里上传/下载图层与线路数据",
+        "hint": "App 只需填 pmsBase 一个地址；1.2.0 起可上传/下载图层与线路数据集，"
+                "1.3.0 起可直接把 KML/KMZ/GeoJSON/GPX/SHP 放进 files 目录并在「服务器文件」里加载",
         "endpoints": ["/api/lines", "/api/towers", "/api/units",
                       "/api/import/pms-ledger", "/api/datasets (GET/POST)",
                       "/api/datasets/{id} (GET/DELETE)", "/api/datasets/{id}/download",
-                      "/api/datasets/import", "/ws/location", "/tiles/{z}/{x}/{y}.png"],
+                      "/api/datasets/import", "/api/files (GET/POST)",
+                      "/api/files/{id}/download (GET)", "/api/files/{id} (DELETE)",
+                      "/ws/location", "/tiles/{z}/{x}/{y}.png"],
     })
 
 
@@ -439,6 +453,111 @@ def delete_dataset(dsid):
     with db() as c:
         n = c.execute("DELETE FROM datasets WHERE id=?", (dsid,)).rowcount
     return jsonify({"success": True, "message": "已删除" if n else "数据集不存在", "count": n})
+
+
+# ---------------------------------------------------------------- 原始文件库（1.3.0）
+# 直接扫描 FILE_ROOT 目录，不建数据库表：把 KML/KMZ/GeoJSON/GPX/SHP(zip) 拷进 NAS
+# 共享目录（docker compose 里是 nas-server/data/files/）就会被 App 自动列出。
+def _safe_name(raw):
+    """保留中文，只去掉路径分隔符与控制字符，防止目录穿越"""
+    name = os.path.basename((raw or "").replace("\\", "/")).strip()
+    name = "".join(c for c in name if c not in "\r\n\t" and ord(c) >= 32)
+    return name[:120]
+
+
+def _file_id(name):
+    """文件名哈希做 id：稳定、ASCII 安全，中文文件名也不会破坏 URL"""
+    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+
+
+def scan_server_files():
+    FILE_ROOT.mkdir(parents=True, exist_ok=True)
+    out = []
+    for f in sorted(FILE_ROOT.iterdir(), key=lambda p: p.name.lower()):
+        if not f.is_file() or f.suffix.lower() not in ALLOWED_FILE_EXT:
+            continue
+        st = f.stat()
+        ext = f.suffix.lower().lstrip(".")
+        out.append({
+            "id": _file_id(f.name),
+            "name": f.name,
+            "sizeBytes": st.st_size,
+            "ext": ext,
+            "kind": "shp" if ext in ("shp", "zip") else ("geojson" if ext in ("geojson", "json") else ext),
+            "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+        })
+    return out
+
+
+def _find_file(fid):
+    root = FILE_ROOT.resolve()
+    for meta in scan_server_files():
+        if meta["id"] != fid:
+            continue
+        f = (FILE_ROOT / meta["name"]).resolve()
+        if f.is_file() and f.parent == root:
+            return f, meta
+    return None, None
+
+
+@app.get("/api/files")
+def list_server_files():
+    """App「服务器文件」页：列出可直接下载的 KML 等原始文件"""
+    return jsonify(scan_server_files())
+
+
+@app.get("/api/files/<fid>/download")
+def download_server_file(fid):
+    f, meta = _find_file(fid)
+    if f is None:
+        return jsonify({"success": False, "message": "文件不存在"}), 404
+    try:
+        return send_from_directory(str(FILE_ROOT), f.name,
+                                   as_attachment=True, download_name=f.name)
+    except TypeError:  # Flask 1.x 没有 download_name
+        return send_from_directory(str(FILE_ROOT), f.name, as_attachment=True)
+
+
+@app.post("/api/files")
+def upload_server_file():
+    """上传原始文件：支持 multipart 的 file 字段，或 raw body + X-File-Name 头。
+
+    OkHttp 的 multipart filename 带中文时 Werkzeug 会解码成乱码，所以 App / CLI
+    统一把 UTF-8 URL 编码后的真实文件名放进 X-File-Name，这里优先取它。
+    """
+    header_name = _safe_name(unquote(request.headers.get("X-File-Name", "")))
+    part = request.files.get("file") if request.files else None
+    if part is not None:
+        name = header_name or _safe_name(unquote(part.filename or ""))
+        data = part.read()
+    else:
+        name = header_name
+        data = request.get_data() or b""
+    if not name:
+        return jsonify({"success": False, "message": "缺少文件名"}), 400
+    if Path(name).suffix.lower() not in ALLOWED_FILE_EXT:
+        return jsonify({"success": False,
+                        "message": "不支持的类型，仅允许 kml/kmz/geojson/json/gpx/shp/zip"}), 400
+    if not data:
+        return jsonify({"success": False, "message": "文件内容为空"}), 400
+    if len(data) > MAX_FILE_BYTES:
+        return jsonify({"success": False, "message": "文件超过 200 MB 限制"}), 413
+    FILE_ROOT.mkdir(parents=True, exist_ok=True)
+    target = (FILE_ROOT / name).resolve()
+    if target.parent != FILE_ROOT.resolve():
+        return jsonify({"success": False, "message": "非法文件名"}), 400
+    target.write_bytes(data)
+    return jsonify({"success": True, "message": "文件已上传", "count": 1,
+                    "id": _file_id(name), "name": name, "sizeBytes": len(data)})
+
+
+@app.delete("/api/files/<fid>")
+def delete_server_file(fid):
+    f, meta = _find_file(fid)
+    if f is None:
+        return jsonify({"success": False, "message": "文件不存在"}), 404
+    f.unlink()
+    return jsonify({"success": True, "message": "已删除 %s" % meta["name"], "count": 1})
 
 
 # ---------------------------------------------------------------- XYZ 瓦片

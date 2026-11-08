@@ -15,10 +15,14 @@ import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
 import com.kunming.powerline.data.local.entity.TowerEntity
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.kunming.powerline.data.local.entity.OnlineMapEntity
+import com.kunming.powerline.data.remote.model.DatasetBundleDto
 import com.kunming.powerline.data.remote.model.DatasetMetaDto
+import com.kunming.powerline.data.remote.model.ServerFileDto
 import com.kunming.powerline.data.repository.CustomMapSourceRepository
 import com.kunming.powerline.data.repository.DataSyncRepository
+import com.kunming.powerline.data.repository.ServerFileRepository
 import com.kunming.powerline.ui.map.CustomSourceSpec
 import com.kunming.powerline.data.location.AmapLocationClient
 import com.kunming.powerline.data.location.FixLocation
@@ -98,7 +102,8 @@ class MapViewModel @Inject constructor(
     val compass: com.kunming.powerline.data.sensor.CompassSensor,
     private val db: AppDatabase,
     private val customMapRepo: CustomMapSourceRepository,
-    private val dataSync: DataSyncRepository
+    private val dataSync: DataSyncRepository,
+    private val serverFiles: ServerFileRepository
 ) : ViewModel() {
 
     // ---------------- 数据流 ----------------
@@ -1534,6 +1539,137 @@ class MapViewModel @Inject constructor(
                 onFailure = { onDone(false, "导入失败：${it.message}") }
             )
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 1.3.0 · 服务器原始文件（KML 等） + 全量导出 / 导入
+    // ------------------------------------------------------------------
+    fun listServerFiles(onDone: (Boolean, String, List<ServerFileDto>) -> Unit) {
+        viewModelScope.launch {
+            serverFiles.list().fold(
+                onSuccess = { list -> onDone(true, "共 ${list.size} 个文件", list) },
+                onFailure = { e -> onDone(false, "读取失败：${e.message}", emptyList()) }
+            )
+        }
+    }
+
+    fun uploadServerFile(uri: Uri, fileName: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在上传文件…"
+            val r = serverFiles.upload(uri, fileName)
+            _busy.value = null
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "上传失败：${it.message}") }
+            )
+        }
+    }
+
+    fun deleteServerFile(id: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            serverFiles.delete(id).fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "删除失败：${it.message}") }
+            )
+        }
+    }
+
+    /** 从服务器下载原始文件，按用户选择导入为线路或专题图层 */
+    fun importServerFile(f: ServerFileDto, asThematic: Boolean, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在下载并导入…"
+            val r = runCatching {
+                val (uri, name) = serverFiles.download(f).getOrThrow()
+                importGeoUri(uri, name, asThematic)
+            }
+            _busy.value = null
+            _layerVersion.value = System.currentTimeMillis()
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导入失败：${it.message}") }
+            )
+        }
+    }
+
+    /** 一键全量导出：所有图层 + 所有线路 + 杆塔（无损备份 JSON） */
+    fun exportAllDataset(uri: Uri, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在导出全量数据…"
+            val r = dataSync.exportAllToUri(uri)
+            _busy.value = null
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导出失败：${it.message}") }
+            )
+        }
+    }
+
+    /** 一键全量导出为通用 GeoJSON（QGIS / Google Earth 可直接打开） */
+    fun exportAllGeoJson(uri: Uri, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在导出 GeoJSON…"
+            val r = dataSync.exportAllGeoJsonToUri(uri)
+            _busy.value = null
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导出失败：${it.message}") }
+            )
+        }
+    }
+
+    /**
+     * 「全部导入」：先嗅探是不是 App 私有全量备份 JSON（powerline-dataset/1），
+     * 是则无损还原；否则按地理文件解析，asThematic=true 导成专题图层，false 导成线路 + 杆塔。
+     */
+    fun importAny(uri: Uri, asThematic: Boolean, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在导入数据…"
+            val r = runCatching {
+                if (isAppDataset(uri)) {
+                    dataSync.importFromUri(uri).getOrThrow()
+                } else {
+                    importGeoUri(uri, displayName(uri), asThematic)
+                }
+            }
+            _busy.value = null
+            _layerVersion.value = System.currentTimeMillis()
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导入失败：${it.message}") }
+            )
+        }
+    }
+
+    private suspend fun importGeoUri(uri: Uri, fileName: String, asThematic: Boolean): String {
+        if (asThematic) {
+            val result = geoParser.parseThematic(uri, fileName).getOrThrow()
+            val (layers, features) = thematicRepo.save(result, fileName.takeIf { it.isNotBlank() })
+            return "已导入专题图层：$layers 个图层 / $features 个要素" +
+                if (result.errors.isEmpty()) "" else "，${result.errors.size} 处被忽略"
+        }
+        val result = geoParser.parse(uri, fileName).getOrThrow()
+        saveImport(result, result.format.ifBlank { "geo" }, fileName)
+        return "已导入线路：${result.lines.size} 条 / ${result.towerCount} 基杆塔" +
+            if (result.errors.isEmpty()) "" else "，${result.errors.size} 处被忽略"
+    }
+
+    /** 读前 4KB 判断是不是 App 导出的全量备份 JSON */
+    private suspend fun isAppDataset(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val buf = ByteArray(4096)
+            val n = context.contentResolver.openInputStream(uri)?.use { it.read(buf) } ?: -1
+            val head = if (n > 0) String(buf, 0, n, Charsets.UTF_8) else ""
+            head.contains("\"schema\"") && head.contains(DatasetBundleDto.SCHEMA)
+        }.getOrDefault(false)
+    }
+
+    private fun displayName(uri: Uri): String = try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+        } ?: uri.lastPathSegment.orEmpty()
+    } catch (t: Throwable) {
+        uri.lastPathSegment.orEmpty()
     }
 
     // ------------------------------------------------------------------
