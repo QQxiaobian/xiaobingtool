@@ -26,6 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -116,7 +118,10 @@ fun ManageRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    /** 1.4.0 批量选择：非 null 时在行首显示勾选框 */
+    checked: Boolean? = null,
+    onCheckedChange: ((Boolean) -> Unit)? = null
 ) {
     Row(
         modifier
@@ -125,6 +130,15 @@ fun ManageRow(
             .padding(start = 16.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (checked != null && onCheckedChange != null) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier.size(28.dp),
+                colors = CheckboxDefaults.colors(checkedColor = PowerRed)
+            )
+            Spacer(Modifier.width(2.dp))
+        }
         if (leadingColor != null) {
             Box(Modifier.size(9.dp).background(leadingColor, CircleShape))
             Spacer(Modifier.width(10.dp))

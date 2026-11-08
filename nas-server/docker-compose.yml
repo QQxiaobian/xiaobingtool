@@ -7,8 +7,8 @@
 # 日志：  docker compose logs -f pms
 #
 # 端口说明（App 端 local.properties 要填的就是这两个）：
-#   8080  PMS 台账 REST + 位置共享 WebSocket + 瓦片（单容器兜底）
-#   8090  纯静态瓦片（nginx，性能更好，推荐 App 用这个）
+#   8902  PMS 台账 REST + 位置共享 WebSocket + 瓦片（单容器兜底，1.4.0 起 App 默认端口）
+#   8090  纯静态瓦片（nginx，可选，性能更好）
 services:
   pms:
     # 离线部署用：导入成品镜像后执行 docker compose up -d --no-build 即可运行
@@ -22,7 +22,7 @@ services:
     container_name: powerline-pms
     restart: unless-stopped
     ports:
-      - "${PMS_PORT:-8080}:8080"
+      - "${PMS_PORT:-8902}:8080"
     environment:
       TZ: Asia/Shanghai
       PMS_DB: /data/pms.db

@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.3.1（versionCode 24）
+- **当前版本**：1.4.0（versionCode 25）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -36,6 +36,7 @@
 | 数据同步（1.2.0） | NAS / 服务器 / 本地 JSON 三路：上传本机图层与线路数据、浏览并下载服务器数据集、删除远端数据集；导出 / 导入同一份 `powerline-dataset/1` JSON 便于离线流转；按图层 id、线路名、杆塔号 UPSERT 合并 |
 | 服务器原始文件（1.3.0） | 直接把 KML / KMZ / GeoJSON / GPX / SHP(zip) 放进 NAS 的 `files` 目录，App 自动列出、下载并导入为「线路」或「专题图层」；也可从手机上传 / 删除服务器文件 |
 | 全量导出导入（1.3.0） | 一键导出本机**全部**图层 + 线路 + 杆塔，无需填名称 / 选类型；「备份 JSON」可无损还原，「GeoJSON」供 QGIS / Google Earth 等外部系统交换；导入自动识别备份包或按线路 / 图层解析 |
+| 批量与命名（1.4.0） | 线路 / 专题图层可勾选批量删除（二次确认）；服务器文件可勾选多个一键导入为线路或图层、批量删除；服务器导入线路时线路名默认取文件名，并自动从文件名识别电压等级（`220kV` / `500千伏` / `110_某某线`）；打包默认服务器地址改为 `192.168.1.12:8902` 单端口（REST / WS / 瓦片同一端口） |
 
 ---
 
@@ -45,7 +46,7 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 128 项全部通过 |
+| `:app:testDebugUnitTest` | ✅ 137 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1 + v2 + v3 三签齐全；默认显示 `v1: false` 仅因 minSdk 26 只走 v2 验证路径，`--min-sdk-version 23` 可见 v1=true，详见 4.2.1） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -64,6 +65,7 @@
 - `DatasetModelTest`（1.2.0）：数据集统计 / 类型推断 / 名称校验 / 元数据 / Moshi 序列化往返
 - `GeoJsonExporterTest`（1.3.0）：全量 GeoJSON 结构 / 要素数量 / 属性 / 转义 / 边界数据
 - `ServerFileKindTest`（1.3.0）：服务器文件扩展名分类、二进制标记、本地文件名清洗
+- `ServerImportNamingTest`（1.4.0）：服务器文件导入的文件名命名、多条线路加序号、电压等级识别（kV / 千伏 / 数字前缀）、年份不误判、杆塔数据不丢失
 
 ---
 
@@ -107,9 +109,9 @@ cp local.properties.template local.properties
 | `TIANDITU_KEY` | 天地图密钥（全国底板） | `abcd1234...` |
 | `TIANDITU_KEY_YUNNAN` | 云南天地图密钥（可选，留空复用全国 Key） | `efgh5678...` |
 | `AMAP_KEY` | 高德开放平台 Key（定位） | `1a2b3c...` |
-| `PMS_BASE_URL` | PMS 内网服务地址，**必须以 `/` 结尾** | `http://10.0.0.1:8080/` |
-| `WS_LOCATION_URL` | 位置共享 WebSocket 地址 | `wss://server/ws/location` |
-| `TILE_SERVER_URL` | 自建瓦片服务模板 | `http://10.0.0.1:8090/tiles/{z}/{x}/{y}.png` |
+| `PMS_BASE_URL` | PMS 内网服务地址，**必须以 `/` 结尾** | 默认 `http://192.168.1.12:8902/` |
+| `WS_LOCATION_URL` | 位置共享 WebSocket 地址 | 默认 `ws://192.168.1.12:8902/ws/location` |
+| `TILE_SERVER_URL` | 自建瓦片服务模板 | 默认 `http://192.168.1.12:8902/tiles/{z}/{x}/{y}.png` |
 | `ROADNET_TILE_URL` | 路网注记瓦片地址（可选，默认用云南天地图注记） | `https://t{s}.tianditu.gov.cn/cva_w/wmts?...` |
 | `HELP_DOC_URL` | 帮助页跳转地址（可选） | `https://lbs.tianditu.gov.cn/` |
 | `RELEASE_STORE_FILE` | 签名文件相对路径 | `keystore/powerline-release.jks` |
@@ -164,11 +166,14 @@ Docker Compose 工程，包含瓦片服务（nginx）、PMS 台账 REST 与位�
 接口已按 App 源码实现并通过实测。
 
 - **1.1.1 起改地址无需重新打包**：在 App「设置 → 服务器（自建 NAS）」里填主地址
-  （如 `192.168.1.10:8080`），点「测试连接」会自动读取 NAS `/health` 返回的三个推荐地址，
+  （1.4.0 默认 `192.168.1.12:8902`），点「测试连接」会自动读取 NAS `/health` 返回的三个推荐地址，
   保存后立即生效；高级里还可单独覆盖台账 / 位置共享 / 瓦片地址，或一键恢复默认值。
+- **1.4.0 起打包默认地址为 `192.168.1.12:8902` 单端口**：PMS REST、位置共享 WS 与瓦片
+  都走同一端口的内置 `/tiles/` 路由，nginx 8090 变为可选。NAS 侧把 `.env` 的 `PMS_PORT`
+  设为 `8902` 即可对齐；现场端口不同时在 App 设置页改一次即可，服务端代码无需改动。
 - 批量分发时也可把 `PMS_BASE_URL` / `WS_LOCATION_URL` / `TILE_SERVER_URL` 写进
   `local.properties` 编译为默认值，用户设置优先、默认值作兜底。
-- NAS 端只需固定内网 IP、放行 8080（可选 8090）、保证 `/health` 可访问，
+- NAS 端只需固定内网 IP、放行 `PMS_PORT`（默认 8902，可选 8090）、保证 `/health` 可访问，
   容器不需要预先知道自己的 IP——推荐地址按请求方的 host 自动生成。
 
 详见 [nas-server/README.md](nas-server/README.md)。
@@ -211,8 +216,8 @@ Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v
 `apksigner verify --min-sdk-version 23 --verbose app-release.apk`
 可见 `v1 / v2 / v3` 全部为 `true`。
 
-交付包内随附 `PowerLine-1.3.1-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
-`PowerLine-1.3.1-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
+交付包内随附 `PowerLine-1.4.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
+`PowerLine-1.4.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
 
 ### 4.3 分 ABI 打包（减小体积，可选）
 
@@ -277,18 +282,18 @@ app/src/main/java/com/kunming/powerline/
 │   ├── importui/                   创建/导入线路全流程
 │   ├── layermanage/                各图层管理页
 │   │   ├── LayerImportEdit.kt      通用导入条与编辑弹窗（7 个业务图层复用）
-│   │   ├── ThematicLayerScreen.kt  专题图层管理（1.2.0 可新建空白图层 / 名称/透明度/线宽/批量/转线路）
+│   │   ├── ThematicLayerScreen.kt  专题图层管理（1.2.0 新建空白图层 / 名称/透明度/线宽/批量/转线路；1.4.0 批量勾选删除）
 │   │   └── LineEditScreen.kt       线路编辑
 │   ├── settings/                   设置面板、服务器地址、地图数据设置
 │   │   ├── CustomMapSourceScreen.kt  1.2.0 自定义地图源管理
 │   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步；1.3.0 增加全量导出导入
-│   │   └── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入
+│   │   └── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入；1.4.0 批量勾选导入为线路/图层
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
 ├── domain/                         领域模型
 └── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif
 
-nas-server/                         NAS 自建服务（Docker Compose，8080 单端口）
+nas-server/                         NAS 自建服务（Docker Compose，默认 8902 单端口，可用 .env 改）
 ├── pms/app.py                      Flask：台账 REST / 数据集 API / 原始文件库 / 位置共享 WS / XYZ 瓦片
 ├── tools/dataset_cli.py            1.2.0 数据集命令行管理（list/upload/download/delete）
 ├── tools/file_cli.py               1.3.0 服务器原始文件命令行管理（list/upload/download/delete）
@@ -506,6 +511,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.4.0 | 2026-11 | 线路 / 专题图层支持勾选批量删除（二次确认）；服务器文件可勾选多个一键导入为线路或图层、批量删除；服务器导入线路时线路名默认取文件名并自动识别电压等级（新增 `ServerImportNaming` 与 8 项单测）；打包默认服务器地址改为 `192.168.1.12:8902` 单端口，NAS 侧 `PMS_PORT` 同步对齐；137 项单测通过 |
 | 1.3.1 | 2026-11 | 按需求移除演示 / 测试用定位功能及其全部代码、设置入口、地图点选与单测；定位、位置共享、巡检轨迹统一使用真实 GPS；128 项单测通过 |
 | 1.3.0 | 2026-11 | 服务器原始文件库（直接加载 NAS 上的 KML/KMZ/GeoJSON/GPX/SHP，可导入为线路或图层、可上传/删除）、全量线路/图层导出导入（无损备份 JSON + 通用 GeoJSON）、NAS `/api/files` 系列接口与 `file_cli.py`、`GeoJsonExporter` / `ServerFileRepository`、133 项单测 |
 | 1.2.0 | 2026-11 | 自定义地图源 / 地图服务器（可叠加、可设主底图）、自定义图层新建与逐层显示开关、NAS 数据同步（上传 / 下载 / 本地 JSON）、Room v4 迁移 |

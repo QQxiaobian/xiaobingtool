@@ -29,6 +29,7 @@ import com.kunming.powerline.data.location.FixLocation
 import com.kunming.powerline.data.location.LocationShareSocket
 import com.kunming.powerline.data.parser.ImportLine
 import com.kunming.powerline.data.parser.ParseResult
+import com.kunming.powerline.data.parser.ServerImportNaming
 import com.kunming.powerline.data.prefs.ServerAddresses
 import com.kunming.powerline.data.prefs.ServerConfig
 import com.kunming.powerline.data.prefs.SettingsStore
@@ -371,6 +372,16 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             lineRepo.deleteLine(lineId)
             _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 1.4.0 批量删除勾选的线路（连带各自杆塔） */
+    fun deleteLines(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { lineRepo.deleteLine(it) }
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已删除 ${ids.size} 条线路及关联杆塔")
         }
     }
 
@@ -1263,6 +1274,16 @@ class MapViewModel @Inject constructor(
         }
     }
 
+    /** 1.4.0 批量删除勾选的专题图层（连带各自要素） */
+    fun deleteThematicLayers(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { thematicRepo.delete(it) }
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已删除 ${ids.size} 个专题图层及要素")
+        }
+    }
+
     fun deleteAllThematic() {
         viewModelScope.launch(Dispatchers.IO) {
             thematicRepo.deleteAll()
@@ -1545,7 +1566,7 @@ class MapViewModel @Inject constructor(
             _busy.value = "正在下载并导入…"
             val r = runCatching {
                 val (uri, name) = serverFiles.download(f).getOrThrow()
-                importGeoUri(uri, name, asThematic)
+                importGeoUri(uri, name, asThematic, applyServerNaming = true)
             }
             _busy.value = null
             _layerVersion.value = System.currentTimeMillis()
@@ -1553,6 +1574,52 @@ class MapViewModel @Inject constructor(
                 onSuccess = { onDone(true, it) },
                 onFailure = { onDone(false, "导入失败：${it.message}") }
             )
+        }
+    }
+
+    /**
+     * 1.4.0 批量导入：勾选多个服务器文件，逐个下载后一次性导入为线路或专题图层。
+     * 单个文件失败不影响其余文件，最后汇总成功数与失败清单。
+     */
+    fun importServerFiles(files: List<ServerFileDto>, asThematic: Boolean, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            if (files.isEmpty()) {
+                onDone(false, "请先勾选要导入的文件")
+                return@launch
+            }
+            var okCount = 0
+            val fails = mutableListOf<String>()
+            files.forEachIndexed { i, f ->
+                _busy.value = "正在批量导入（${i + 1}/${files.size}）…"
+                runCatching {
+                    val (uri, name) = serverFiles.download(f).getOrThrow()
+                    importGeoUri(uri, name, asThematic, applyServerNaming = true)
+                }.fold(
+                    onSuccess = { okCount++; Unit },
+                    onFailure = { fails.add("${f.name}：${it.message ?: "导入失败"}"); Unit }
+                )
+            }
+            _busy.value = null
+            _layerVersion.value = System.currentTimeMillis()
+            val msg = buildString {
+                append("批量导入完成：成功 $okCount / ${files.size}")
+                if (fails.isNotEmpty()) {
+                    append("，失败 ${fails.size}\n")
+                    append(fails.take(3).joinToString("\n"))
+                    if (fails.size > 3) append("\n…另有 ${fails.size - 3} 个失败")
+                }
+            }
+            onDone(okCount > 0, msg)
+        }
+    }
+
+    /** 1.4.0 批量删除服务器文件（服务器上的原始文件，非本机数据） */
+    fun deleteServerFiles(ids: List<String>, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            var ok = 0
+            ids.forEach { id -> if (serverFiles.delete(id).isSuccess) ok++ }
+            _layerVersion.value = System.currentTimeMillis()
+            onDone(ok > 0, "已删除服务器文件：$ok / ${ids.size}")
         }
     }
 
@@ -1605,14 +1672,24 @@ class MapViewModel @Inject constructor(
         }
     }
 
-    private suspend fun importGeoUri(uri: Uri, fileName: String, asThematic: Boolean): String {
+    /**
+     * @param applyServerNaming 服务器文件导入时启用：线路名取文件名、自动识别电压等级。
+     *        本地文件导入保持原有行为（沿用文件内部名称）。
+     */
+    private suspend fun importGeoUri(
+        uri: Uri,
+        fileName: String,
+        asThematic: Boolean,
+        applyServerNaming: Boolean = false
+    ): String {
         if (asThematic) {
             val result = geoParser.parseThematic(uri, fileName).getOrThrow()
             val (layers, features) = thematicRepo.save(result, fileName.takeIf { it.isNotBlank() })
             return "已导入专题图层：$layers 个图层 / $features 个要素" +
                 if (result.errors.isEmpty()) "" else "，${result.errors.size} 处被忽略"
         }
-        val result = geoParser.parse(uri, fileName).getOrThrow()
+        var result = geoParser.parse(uri, fileName).getOrThrow()
+        if (applyServerNaming) result = ServerImportNaming.apply(result, fileName)
         saveImport(result, result.format.ifBlank { "geo" }, fileName)
         return "已导入线路：${result.lines.size} 条 / ${result.towerCount} 基杆塔" +
             if (result.errors.isEmpty()) "" else "，${result.errors.size} 处被忽略"

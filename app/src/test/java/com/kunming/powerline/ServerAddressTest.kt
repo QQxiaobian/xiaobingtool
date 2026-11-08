@@ -61,4 +61,15 @@ class ServerAddressTest {
         assertEquals("", a.wsLocation)
         assertEquals("", a.tileServer)
     }
+
+    @Test
+    fun `1_4_0 默认单端口地址推导`() {
+        val a = ServerAddresses.deriveFrom("192.168.1.12:8902")
+        assertEquals("http://192.168.1.12:8902/", a.pmsBase)
+        assertEquals("ws://192.168.1.12:8902/ws/location", a.wsLocation)
+        assertEquals(
+            "http://192.168.1.12:8902/tiles/{z}/{x}/{y}.png",
+            a.tileServer
+        )
+    }
 }

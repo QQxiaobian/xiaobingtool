@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -33,14 +31,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.ui.MapViewModel
+import com.kunming.powerline.ui.theme.LightPanelTheme
 import com.kunming.powerline.ui.theme.PowerRed
-import com.kunming.powerline.util.GeoUtils
 import com.kunming.powerline.util.VoltagePalette
 
 /**
  * 架空线路管理：线路列表 + 电压筛选 + 创建/导入入口
+ * 1.4.0：支持批量勾选删除。
  */
 @Composable
 fun LineListScreen(
@@ -56,6 +54,15 @@ fun LineListScreen(
     var keyword by remember { mutableStateOf("") }
     // 当前正在编辑的线路（非空时显示编辑页）
     var editingLineId by remember { mutableStateOf<String?>(null) }
+    // 1.4.0 批量选择
+    var selectionMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    fun toggle(id: String) {
+        selected = if (id in selected) selected - id else selected + id
+    }
+
     // filter 为空 = 全部；否则只显示选中等级（注意：还要兼容文件里识别出的非标准等级，
     // 这类线路在"全部"下必须可见，不能被静默过滤掉）
     val shown = lines
@@ -84,9 +91,22 @@ fun LineListScreen(
 
     ManageScaffold(
         title = "架空线路图层",
-        subtitle = "共 ${lines.size} 条线路 / ${towers.size} 基杆塔",
+        subtitle = "共 ${lines.size} 条线路 / ${towers.size} 基杆塔" +
+            if (selectionMode) " · 已选 ${selected.size} 条" else "",
         onBack = onBack,
         actions = {
+            Text(
+                if (selectionMode) "退出多选" else "批量选择",
+                fontSize = 12.5.sp,
+                color = PowerRed,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clickable {
+                        selectionMode = !selectionMode
+                        selected = emptySet()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+            )
             IconButton(onClick = onOpenImport) {
                 Icon(Icons.Default.Add, "创建或导入", tint = PowerRed)
             }
@@ -157,42 +177,110 @@ fun LineListScreen(
                     // 会被水平权重压成 0 宽，整行"消失"（v1.0.6 列表空白的根因）
                     Box(Modifier.fillMaxWidth()) {
                         ManageRow(
-                            modifier = Modifier.padding(end = 56.dp),
+                            modifier = Modifier.padding(end = if (selectionMode) 8.dp else 56.dp),
                             title = line.name,
                             subtitle = "${VoltagePalette.labelOf(line.voltageLevel)} · ${cnt} 基杆塔" +
                                 if (line.isEmptyLine) " · 空线路" else "",
                             leadingColor = color,
-                            trailing = "定位 ›",
+                            trailing = if (selectionMode) null else "定位 ›",
+                            checked = if (selectionMode) line.id in selected else null,
+                            onCheckedChange = { toggle(line.id) },
                             onClick = {
-                                val t0 = towers.filter { it.lineId == line.id }.minByOrNull { it.seq }
-                                if (t0 != null) {
-                                    onFocus(t0.lon, t0.lat, 14.0)
-                                    onToast("已定位到 ${line.name} 首基杆塔")
+                                if (selectionMode) {
+                                    toggle(line.id)
                                 } else {
-                                    onToast("该线路暂无杆塔坐标")
+                                    val t0 = towers.filter { it.lineId == line.id }.minByOrNull { it.seq }
+                                    if (t0 != null) {
+                                        onFocus(t0.lon, t0.lat, 14.0)
+                                        onToast("已定位到 ${line.name} 首基杆塔")
+                                    } else {
+                                        onToast("该线路暂无杆塔坐标")
+                                    }
                                 }
                             },
-                            onDelete = {
+                            onDelete = if (selectionMode) null else ({
                                 vm.deleteLine(line.id)
                                 onToast("已删除线路「${line.name}」")
-                            }
+                            })
                         )
-                        Text(
-                            "编辑",
-                            fontSize = 12.sp,
-                            color = PowerRed,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .clickable { editingLineId = line.id }
-                                .padding(horizontal = 18.dp, vertical = 10.dp)
-                        )
+                        if (!selectionMode) {
+                            Text(
+                                "编辑",
+                                fontSize = 12.sp,
+                                color = PowerRed,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .clickable { editingLineId = line.id }
+                                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        PrimaryAction("创建或导入线路", onClick = onOpenImport)
+        // ---------- 1.4.0 批量操作栏 ----------
+        if (selectionMode) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "全选（${shown.size}）", fontSize = 12.5.sp, color = PowerRed,
+                    modifier = Modifier.clickable { selected = shown.map { it.id }.toSet() }
+                )
+                Text(
+                    "清空", fontSize = 12.5.sp, color = Color(0xFF8A8078),
+                    modifier = Modifier.clickable { selected = emptySet() }
+                )
+                Spacer(Modifier.weight(1f))
+                Text("已选 ${selected.size} 条", fontSize = 12.sp, color = Color(0xFF5C544A))
+            }
+            PrimaryAction(
+                text = "删除选中的 ${selected.size} 条线路",
+                enabled = selected.isNotEmpty(),
+                onClick = { confirmDelete = true }
+            )
+        } else {
+            PrimaryAction("创建或导入线路", onClick = onOpenImport)
+        }
+    }
+
+    // ---------- 批量删除确认 ----------
+    if (confirmDelete) {
+        LightPanelTheme {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("批量删除线路", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        "确定删除选中的 ${selected.size} 条线路及其全部杆塔？删除后不可恢复。",
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    Text(
+                        "删除", fontSize = 14.sp, color = PowerRed, fontWeight = FontWeight.Medium,
+                        modifier = Modifier.clickable {
+                            val n = selected.size
+                            vm.deleteLines(selected)
+                            onToast("已删除 $n 条线路")
+                            selected = emptySet()
+                            selectionMode = false
+                            confirmDelete = false
+                        }.padding(10.dp)
+                    )
+                },
+                dismissButton = {
+                    Text(
+                        "取消", fontSize = 14.sp, color = Color(0xFF8A8078),
+                        modifier = Modifier.clickable { confirmDelete = false }.padding(10.dp)
+                    )
+                }
+            )
+        }
     }
 }
 

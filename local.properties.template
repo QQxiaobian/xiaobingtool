@@ -8,14 +8,14 @@ TIANDITU_KEY_YUNNAN=your_tianditu_key_yunnan
 # ===== 高德定位 key（https://lbs.amap.com 申请 Android 平台 Key）=====
 AMAP_KEY=your_amap_android_key
 
-# ===== 内网 PMS / 生产管理系统 =====
-PMS_BASE_URL=http://10.0.0.1:8080/
+# ===== 内网 PMS / 生产管理系统（1.4.0 默认 192.168.1.12:8902 单端口）=====
+PMS_BASE_URL=http://192.168.1.12:8902/
 
 # ===== 位置共享 WebSocket =====
-WS_LOCATION_URL=wss://your-server/ws/location
+WS_LOCATION_URL=ws://192.168.1.12:8902/ws/location
 
-# ===== 自建瓦片服务器 (%7Bz%7D 或 {z} 均可) =====
-TILE_SERVER_URL=http://10.0.0.1:8090/tiles/{z}/{x}/{y}.png
+# ===== 自建瓦片服务器 (%7Bz%7D 或 {z} 均可)；8902 内置 /tiles/ 路由 =====
+TILE_SERVER_URL=http://192.168.1.12:8902/tiles/{z}/{x}/{y}.png
 
 # ===== 路网注记瓦片 / 帮助页（可选，留空用内置默认值）=====
 # ROADNET_TILE_URL=https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=your_tianditu_key_yunnan

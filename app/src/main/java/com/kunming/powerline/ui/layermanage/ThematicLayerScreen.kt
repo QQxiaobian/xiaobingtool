@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -76,6 +78,14 @@ fun ThematicLayerScreen(
     var editRemark by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<ThematicLayerEntity?>(null) }
     var showBatchOpacity by remember { mutableStateOf(false) }
+    // 1.4.0 批量勾选删除
+    var selectionMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmBatchDelete by remember { mutableStateOf(false) }
+
+    fun toggle(id: String) {
+        selected = if (id in selected) selected - id else selected + id
+    }
     // 转线路（整层批量）
     var converting by remember { mutableStateOf<ThematicLayerEntity?>(null) }
     // 单个要素操作
@@ -95,9 +105,22 @@ fun ThematicLayerScreen(
 
     ManageScaffold(
         title = "专题图层",
-        subtitle = "共 ${layers.size} 个图层 / ${features.size} 个要素",
+        subtitle = "共 ${layers.size} 个图层 / ${features.size} 个要素" +
+            if (selectionMode) " · 已选 ${selected.size} 个" else "",
         onBack = onBack,
         actions = {
+            Text(
+                if (selectionMode) "退出多选" else "批量选择",
+                fontSize = 13.sp,
+                color = PowerRed,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clickable {
+                        selectionMode = !selectionMode
+                        selected = emptySet()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+            )
             Text(
                 "新建",
                 fontSize = 13.sp,
@@ -202,47 +225,87 @@ fun ThematicLayerScreen(
                     }
                 }
 
+                // 1.4.0 批量选择操作栏
+                if (selectionMode) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "全选（${layers.size}）", fontSize = 12.5.sp, color = PowerRed,
+                                modifier = Modifier.clickable { selected = layers.map { it.id }.toSet() }
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Text(
+                                "清空", fontSize = 12.5.sp, color = PanelTextSub,
+                                modifier = Modifier.clickable { selected = emptySet() }
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text("已选 ${selected.size}", fontSize = 12.sp, color = PanelTextSub)
+                        }
+                    }
+                }
+
                 items(layers, key = { it.id }) { layer ->
                     val layerFeatures = features.filter { it.layerId == layer.id }
-                    LayerCard(
-                        layer = layer,
-                        features = layerFeatures,
-                        expanded = expandedId == layer.id,
-                        onToggleExpand = {
-                            expandedId = if (expandedId == layer.id) null else layer.id
-                        },
-                        onToggleVisible = {
-                            vm.setThematicVisible(layer.id, !layer.visible)
-                            onToast(if (layer.visible) "已隐藏「${layer.name}」" else "已显示「${layer.name}」")
-                        },
-                        onToggleLabel = {
-                            vm.setThematicLabelVisible(layer.id, !layer.labelVisible)
-                            onToast(
-                                if (layer.labelVisible) "已隐藏「${layer.name}」的名称"
-                                else "已显示「${layer.name}」的名称"
+                    val card: @Composable () -> Unit = {
+                        LayerCard(
+                            layer = layer,
+                            features = layerFeatures,
+                            expanded = expandedId == layer.id,
+                            onToggleExpand = {
+                                expandedId = if (expandedId == layer.id) null else layer.id
+                            },
+                            onToggleVisible = {
+                                vm.setThematicVisible(layer.id, !layer.visible)
+                                onToast(if (layer.visible) "已隐藏「${layer.name}」" else "已显示「${layer.name}」")
+                            },
+                            onToggleLabel = {
+                                vm.setThematicLabelVisible(layer.id, !layer.labelVisible)
+                                onToast(
+                                    if (layer.labelVisible) "已隐藏「${layer.name}」的名称"
+                                    else "已显示「${layer.name}」的名称"
+                                )
+                            },
+                            onOpacityChange = { v -> vm.setThematicFillOpacity(layer.id, v) },
+                            onLineWidthChange = { v -> vm.setThematicLineWidth(layer.id, v) },
+                            onFocus = {
+                                val c = centerOf(layerFeatures)
+                                if (c != null) {
+                                    onFocus(c.first, c.second, 14.0)
+                                    onToast("已定位到「${layer.name}」")
+                                } else onToast("该图层没有可定位的坐标")
+                            },
+                            onEdit = {
+                                editing = layer
+                                editName = layer.name
+                                editRemark = layer.remark ?: ""
+                            },
+                            onDelete = { deleting = layer },
+                            onConvert = { converting = layer },
+                            onFeatureClick = { f ->
+                                f.lon?.let { lon -> f.lat?.let { lat -> onFocus(lon, lat, 17.0) } }
+                            },
+                            onFeatureAction = { f -> actionFeature = f }
+                        )
+                    }
+                    if (selectionMode) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = layer.id in selected,
+                                onCheckedChange = { toggle(layer.id) },
+                                modifier = Modifier.size(30.dp),
+                                colors = CheckboxDefaults.colors(checkedColor = PowerRed)
                             )
-                        },
-                        onOpacityChange = { v -> vm.setThematicFillOpacity(layer.id, v) },
-                        onLineWidthChange = { v -> vm.setThematicLineWidth(layer.id, v) },
-                        onFocus = {
-                            val c = centerOf(layerFeatures)
-                            if (c != null) {
-                                onFocus(c.first, c.second, 14.0)
-                                onToast("已定位到「${layer.name}」")
-                            } else onToast("该图层没有可定位的坐标")
-                        },
-                        onEdit = {
-                            editing = layer
-                            editName = layer.name
-                            editRemark = layer.remark ?: ""
-                        },
-                        onDelete = { deleting = layer },
-                        onConvert = { converting = layer },
-                        onFeatureClick = { f ->
-                            f.lon?.let { lon -> f.lat?.let { lat -> onFocus(lon, lat, 17.0) } }
-                        },
-                        onFeatureAction = { f -> actionFeature = f }
-                    )
+                            Box(Modifier.weight(1f)) { card() }
+                        }
+                    } else {
+                        card()
+                    }
                     Divider(color = PanelLine, thickness = 0.7.dp)
                 }
                 item {
@@ -259,16 +322,30 @@ fun ThematicLayerScreen(
                             .padding(horizontal = 20.dp, vertical = 14.dp),
                         textAlign = TextAlign.Center
                     )
-                    Text(
-                        "清空全部专题图层",
-                        fontSize = 12.sp,
-                        color = PowerRed,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onDeleteAll() }
-                            .padding(18.dp),
-                        textAlign = TextAlign.Center
-                    )
+                    if (selectionMode) {
+                        Text(
+                            "删除选中的 ${selected.size} 个图层",
+                            fontSize = 12.5.sp,
+                            color = if (selected.isEmpty()) PanelTextSub else PowerRed,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = selected.isNotEmpty()) { confirmBatchDelete = true }
+                                .padding(18.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        Text(
+                            "清空全部专题图层",
+                            fontSize = 12.sp,
+                            color = PowerRed,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onDeleteAll() }
+                                .padding(18.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
@@ -536,6 +613,47 @@ fun ThematicLayerScreen(
                         fontSize = 14.sp,
                         color = PanelTextSub,
                         modifier = Modifier.clickable { deleting = null }.padding(10.dp)
+                    )
+                }
+            )
+        }
+    }
+
+    // 1.4.0 批量删除确认
+    if (confirmBatchDelete) {
+        LightPanelTheme {
+            AlertDialog(
+                onDismissRequest = { confirmBatchDelete = false },
+                containerColor = PanelBg,
+                title = {
+                    Text("批量删除图层", fontSize = 15.sp, color = PanelText, fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Text(
+                        "确定删除选中的 ${selected.size} 个专题图层及其全部要素？删除后不可恢复。",
+                        fontSize = 13.sp,
+                        color = PanelTextSub
+                    )
+                },
+                confirmButton = {
+                    Text(
+                        "删除", fontSize = 14.sp, color = PowerRed, fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable {
+                                val n = selected.size
+                                vm.deleteThematicLayers(selected)
+                                onToast("已删除 $n 个专题图层")
+                                selected = emptySet()
+                                selectionMode = false
+                                confirmBatchDelete = false
+                            }
+                            .padding(10.dp)
+                    )
+                },
+                dismissButton = {
+                    Text(
+                        "取消", fontSize = 14.sp, color = PanelTextSub,
+                        modifier = Modifier.clickable { confirmBatchDelete = false }.padding(10.dp)
                     )
                 }
             )

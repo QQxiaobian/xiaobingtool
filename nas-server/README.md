@@ -16,6 +16,11 @@ App 里已经预留了三个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 两个容器：`powerline-tiles`（纯静态，性能好）、`powerline-pms`（REST + WS + 瓦片兜底）。
 台账存 SQLite `data/pms.db`，瓦片就是 `data/tiles/` 下的普通文件，**备份等于打包 `data/` 目录**。
 
+> **1.4.0 端口对齐**：App 打包默认地址改为 `192.168.1.12:8902`（单端口 REST / WS / 瓦片），
+> 因此本工程 `.env` 的 `PMS_PORT` 默认同步为 `8902`。下文示例里的 `8080` 是自定义端口写法，
+> 沿用 8080 时把 `.env` 改回 `PMS_PORT=8080`，并在 App「设置 → 服务器地址」里同步即可，
+> 服务端代码无需任何改动。
+
 > 接口不是随便定的，全部对齐 App 源码：`data/remote/PmsApi.kt`、`PmsModels.kt`、
 > `ui/map/Basemap.kt`（`serverTileUrl` 会拼出 `tiles/yn_img/`、`tiles/cn_img/`、`tiles/yn_vec/`）、
 > `data/location/LocationShareSocket.kt`。按本工程部署即可直接连通，无需改 App 代码。
