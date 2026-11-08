@@ -123,7 +123,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val shareConnected by vm.shareConnected.collectAsStateWithLifecycle()
     val server by vm.serverAddresses.collectAsStateWithLifecycle()
     val customSources by vm.customSourceSpecs.collectAsStateWithLifecycle()
-    val mockState by vm.mockState.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
@@ -151,9 +150,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showCustomMapSources by remember { mutableStateOf(false) }
     var showDataSync by remember { mutableStateOf(false) }
     var showServerFiles by remember { mutableStateOf(false) }
-    var showMockLocation by remember { mutableStateOf(false) }
-    // 在地图上点选「App 内模拟定位」坐标的临时模式
-    var pickingMockLocation by remember { mutableStateOf(false) }
     // 点击专题区域/点位后弹出的信息卡
     var thematicSheet by remember { mutableStateOf<com.kunming.powerline.data.local.entity.ThematicFeatureEntity?>(null) }
 
@@ -182,15 +178,13 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
         enabled = showMapData || showServerSettings || showCustomMapSources || showDataSync ||
-            showServerFiles || showMockLocation || pickingMockLocation || managerTarget != null || showImport || showSettings ||
+            showServerFiles || managerTarget != null || showImport || showSettings ||
             showLayers || showBasemap || showResults || showTowerSheet || drawMode
     ) {
         when {
-            pickingMockLocation -> pickingMockLocation = false
             showCustomMapSources -> showCustomMapSources = false
             showDataSync -> showDataSync = false
             showServerFiles -> showServerFiles = false
-            showMockLocation -> showMockLocation = false
             showServerSettings -> showServerSettings = false
             showMapData -> showMapData = false
             managerTarget != null -> managerTarget = null
@@ -335,11 +329,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             serverTileBase = server.tileServer,
             customSources = customSources,
             onTap = { lat, lon, x, y ->
-                if (pickingMockLocation) {
-                    // 点图选点：只写入本 App 的模拟坐标，不写入系统位置、不影响其他应用
-                    vm.setMockLocation(true, lon, lat) { msg -> toastText = msg }
-                    pickingMockLocation = false
-                } else {
                 // 手动操作地图 -> 退出跟随
                 if (followMode) vm.setFollowMode(false)
                 if (drawMode) {
@@ -404,7 +393,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                         }
                     }
                 }
-                } // end else（非选点模式）
             },
             onLongPress = { lat, lon, _, _ ->
                 if (followMode) vm.setFollowMode(false)
@@ -702,7 +690,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 onOpenCustomMapSources = { showSettings = false; showCustomMapSources = true },
                 onOpenDataSync = { showSettings = false; showDataSync = true },
                 onOpenServerFiles = { showSettings = false; showServerFiles = true },
-                onOpenMockLocation = { showSettings = false; showMockLocation = true },
                 onOpenGroupSettings = { navInfo = "地图组设置：按区域 / 单位分组" },
                 onBack = { showSettings = false },
                 sectionResult = sectionResult,
@@ -724,43 +711,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                     Spacer(Modifier.height(10.dp))
                     Text(busy!!, color = Color(0xFF2B2B2B), fontSize = 13.sp)
                 }
-            }
-        }
-
-        // ---------------- 模拟定位标记（明确区分真实 / 演示位置） ----------------
-        if (mockState.valid) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 8.dp)
-                    .background(Color(0xFFFFF3E0), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    "模拟定位（仅本 App）· 非真实位置",
-                    color = Color(0xFF8A4B00), fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // ---------------- 地图点选模拟位置（仅本 App） ----------------
-        if (pickingMockLocation) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = if (mockState.valid) 44.dp else 8.dp)
-                    .background(Color(0xFFFFF3E0), RoundedCornerShape(14.dp))
-                    .clickable { pickingMockLocation = false }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    "点击地图选择模拟位置 · 点此取消",
-                    color = Color(0xFF8A4B00), fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
 
@@ -823,7 +773,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             }
         }
 
-        // ---------------- 自定义地图源 / 数据同步 / 模拟定位（1.2.0） ----------------
+        // ---------------- 自定义地图源 / 数据同步（1.2.0） ----------------
         if (showCustomMapSources) {
             Box(Modifier.fillMaxSize()) {
                 com.kunming.powerline.ui.settings.CustomMapSourceScreen(
@@ -848,16 +798,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 )
             }
         }
-        if (showMockLocation) {
-            Box(Modifier.fillMaxSize()) {
-                com.kunming.powerline.ui.settings.MockLocationScreen(
-                    vm = vm,
-                    onBack = { showMockLocation = false },
-                    onPickOnMap = { showMockLocation = false; pickingMockLocation = true }
-                )
-            }
-        }
-
         // ---------------- 基础地图数据设置 ----------------
         if (showMapData) {
             Box(Modifier.fillMaxSize()) {

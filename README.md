@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.3.0（versionCode 23）
+- **当前版本**：1.3.1（versionCode 24）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -34,7 +34,6 @@
 | 自定义地图源（1.2.0） | 可添加任意 XYZ / TMS 瓦片服务（含自建 NAS 地图服务器），支持 `{s}` 多子域、256/512 瓦片、TMS 方案、缩放范围与不透明度；启用即叠加显示，其中一个可设为「主底图」替代内置底图，也可一键恢复内置 |
 | 自定义图层（1.2.0） | 可手动新建空白图层（名称 / 几何类型 / 颜色 / 备注）；左侧图层面板列出全部自定义图层并**逐个控制是否显示**；图层可导入要素、改归属、转线路，或用服务器数据填充 |
 | 数据同步（1.2.0） | NAS / 服务器 / 本地 JSON 三路：上传本机图层与线路数据、浏览并下载服务器数据集、删除远端数据集；导出 / 导入同一份 `powerline-dataset/1` JSON 便于离线流转；按图层 id、线路名、杆塔号 UPSERT 合并 |
-| App 内模拟定位（1.2.0） | 仅本 App 内生效的演示 / 测试定位（无 GPS 信号时手动补录点位）；**不注入系统位置、不影响其他应用、不需要 root**；顶部显示「模拟定位」标记，位置共享与巡检轨迹仍使用真实 GPS |
 | 服务器原始文件（1.3.0） | 直接把 KML / KMZ / GeoJSON / GPX / SHP(zip) 放进 NAS 的 `files` 目录，App 自动列出、下载并导入为「线路」或「专题图层」；也可从手机上传 / 删除服务器文件 |
 | 全量导出导入（1.3.0） | 一键导出本机**全部**图层 + 线路 + 杆塔，无需填名称 / 选类型；「备份 JSON」可无损还原，「GeoJSON」供 QGIS / Google Earth 等外部系统交换；导入自动识别备份包或按线路 / 图层解析 |
 
@@ -46,7 +45,7 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 133 项全部通过 |
+| `:app:testDebugUnitTest` | ✅ 128 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1 + v2 + v3 三签齐全；默认显示 `v1: false` 仅因 minSdk 26 只走 v2 验证路径，`--min-sdk-version 23` 可见 v1=true，详见 4.2.1） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -63,7 +62,6 @@
 - `ServerAddressTest`（1.1.1）：主地址归一化、三件套推导、https→wss
 - `CustomMapSourceTest`（1.2.0）：XYZ 模板校验、`{s}` 子域展开、TMS 方案、JSON 转义、自定义主底图与叠加层的 style 生成
 - `DatasetModelTest`（1.2.0）：数据集统计 / 类型推断 / 名称校验 / 元数据 / Moshi 序列化往返
-- `MockLocationTest`（1.2.0）：App 内模拟定位的启用条件、坐标范围与默认精度
 - `GeoJsonExporterTest`（1.3.0）：全量 GeoJSON 结构 / 要素数量 / 属性 / 转义 / 边界数据
 - `ServerFileKindTest`（1.3.0）：服务器文件扩展名分类、二进制标记、本地文件名清洗
 
@@ -213,8 +211,8 @@ Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v
 `apksigner verify --min-sdk-version 23 --verbose app-release.apk`
 可见 `v1 / v2 / v3` 全部为 `true`。
 
-交付包内随附 `PowerLine-1.3.0-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
-`PowerLine-1.3.0-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
+交付包内随附 `PowerLine-1.3.1-CHECKSUMS.txt`（SHA-256 / MD5 / 大小 / 证书指纹 / 安装排障）、
+`PowerLine-1.3.1-signing-cert.pem`（签名证书）与 `verify-apk.sh`（一键校验）。
 
 ### 4.3 分 ABI 打包（减小体积，可选）
 
@@ -234,7 +232,7 @@ Android 8.0+ 只需 v2 即可完成验证，因此输出里的 `Verified using v
 | 雷电模拟器 | 设置 → 其他设置 → 开启 ROOT 与 ADB 调试；`adb connect 127.0.0.1:5555` |
 | 安装 | `adb install -r app-release.apk` |
 | 授权 | 首次启动会依次申请定位、后台定位、通知权限；Android 12+ 需在系统弹窗中选择「始终允许」 |
-| 定位 | 模拟器无 GPS，可在模拟器面板「虚拟定位」设置为昆明（102.7123, 25.0401） |
+| 定位 | 模拟器无 GPS，可在模拟器面板设置测试位置为昆明（102.7123, 25.0401） |
 | 看日志 | `adb logcat -s PowerLine MapLibre AMapLocation` |
 
 ---
@@ -254,7 +252,7 @@ app/src/main/java/com/kunming/powerline/
 │   │   └── AppDatabase.kt          含 MIGRATION_1_2 / 2_3 / 3_4
 │   ├── repository/                 LineRepository、PointRepository、BatchRepository、ThematicRepository、
 │   │                               CustomMapSourceRepository（自定义地图源）、DataSyncRepository（NAS 数据同步）
-│   ├── prefs/                      SettingsStore（DataStore，含 App 内模拟定位状态）、ServerConfig、ServerAddresses
+│   ├── prefs/                      SettingsStore（DataStore）、ServerConfig、ServerAddresses
 │   ├── location/                   高德定位封装（GCJ02→WGS84）、位置共享 WebSocket
 │   ├── offline/                    mbtiles 导入、区域瓦片预下载
 │   ├── parser/                     Excel / KML / KMZ / GPX / GeoJSON / SHP 解析、模板生成
@@ -268,7 +266,7 @@ app/src/main/java/com/kunming/powerline/
 ├── di/                             AppModule（Database / DAO / OkHttp / Retrofit）、ServerUrlInterceptor
 ├── ui/
 │   ├── MapScreen.kt                主地图页
-│   ├── MapViewModel.kt             全部状态与业务动作（导入/转线路/编辑/同步/模拟定位）
+│   ├── MapViewModel.kt             全部状态与业务动作（导入/转线路/编辑/同步）
 │   ├── map/                        MapController、LayerRenderer、Basemap、CustomMapSource、底图与图标
 │   │   ├── ThematicLabels.kt       专题标注文案组装与兜底规则
 │   │   ├── ThematicInfoDialog.kt   要素信息卡（KML 备注/扩展属性）
@@ -284,8 +282,7 @@ app/src/main/java/com/kunming/powerline/
 │   ├── settings/                   设置面板、服务器地址、地图数据设置
 │   │   ├── CustomMapSourceScreen.kt  1.2.0 自定义地图源管理
 │   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步；1.3.0 增加全量导出导入
-│   │   ├── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入
-│   │   └── MockLocationScreen.kt     1.2.0 App 内模拟定位（明确非系统级）
+│   │   └── ServerFilesScreen.kt      1.3.0 服务器原始文件（KML 等）浏览与导入
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
 ├── domain/                         领域模型
@@ -428,27 +425,7 @@ App 端由 `DataSyncRepository` 负责组装、上传、下载合并与本地文
 - NAS 端部署见 [`nas-server/README.md`](nas-server/README.md) 的「数据集服务」章节，
   也可使用 `nas-server/tools/dataset_cli.py` 在电脑端批量管理。
 
-### 7.12 关于「虚拟定位」的实现边界
-
-v1.2.0 提供的是 **App 内自用的模拟定位**（设置 → 演示与测试 → 模拟定位）：
-用于演示、离线测试、无 GPS 信号时手动补录点位，只替换本 App 的蓝点与「当前位置」取值。
-
-坐标可手填经纬度，也可点「**在地图上点选位置**」进入选点模式：回到地图后点一下
-目标位置即写入坐标并开启，顶部出现橙色提示条，点提示条或按返回键可取消。
-选点结果同样只作用于本 App，写入的是地图点击处的 WGS84 坐标。
-
-明确**不提供**：root 权限的系统级虚拟定位、向系统 `LocationProvider` 注入位置、
-让微信 / 导航 / 考勤 / 游戏等第三方应用读到伪造位置。理由：这类能力会欺骗第三方系统，
-且巡检业务本身依赖真实、可审计的位置记录。位置共享与巡检轨迹始终读取真实 GPS，
-模拟坐标不会被上报；开启时主界面顶部常驻「模拟定位」标记。
-
-> 补充说明：Android 平台本身有「选择模拟位置信息应用」机制（开发者选项 +
-> `LocationManager.addTestProvider`），**不需要 root** 也能让其他应用读到测试位置。
-> 但它仅用于开发调试、必须由用户在系统设置里显式选择授权，且第三方应用可通过
-> `Location.isFromMockProvider()` 识别并拒绝这类位置。本项目不在生产巡检 App 中内置
-> 该能力，也不提供绕过检测、提权或 hook 系统服务的实现。
-
-### 7.13 加载服务器上的 KML 等原始文件
+### 7.12 加载服务器上的 KML 等原始文件
 
 服务端扫描 NAS 的 `files` 目录（默认 `/data/files`，docker compose 里是 `nas-server/data/files/`），
 App「设置 → 自定义地图与数据 → 服务器文件」自动列出
@@ -464,7 +441,7 @@ App「设置 → 自定义地图与数据 → 服务器文件」自动列出
 > 服务端按文件名哈希生成 ASCII `id`，中文名不会破坏下载 URL。
 > 与 `/api/datasets` 的结构化数据集互不冲突：一个是原始数据文件、一个是打包后的 JSON。
 
-### 7.14 全部线路 / 图层 导出与导入
+### 7.13 全部线路 / 图层 导出与导入
 
 「设置 → 自定义地图与数据 → 数据同步」顶部新增一键全量入口，**无需填名称、无需选图层/线路类型**：
 
@@ -495,7 +472,7 @@ APK 本身 **v1 + v2 + v3 签名齐全**（见 4.2.1），绝大多数安装失�
 检查 `TIANDITU_KEY` 是否有效，以及是否在天地图控制台把应用的「服务配额」用尽。抓包可见 `tk` 无效返回 403。
 
 **Q: 定位一直提示失败？**
-1) 确认 `AMAP_KEY` 的 PackageName 与 SHA1 匹配当前安装包；2) 模拟器需开启虚拟定位；3) 首次需在隐私弹窗点「同意」。
+1) 确认 `AMAP_KEY` 的 PackageName 与 SHA1 匹配当前安装包；2) 模拟器需在面板设置测试位置；3) 首次需在隐私弹窗点「同意」。
 
 **Q: Release 包安装后闪退，Debug 正常？**
 R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/proguard-rules.pro`）。
@@ -529,8 +506,9 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.3.1 | 2026-11 | 按需求移除演示 / 测试用定位功能及其全部代码、设置入口、地图点选与单测；定位、位置共享、巡检轨迹统一使用真实 GPS；128 项单测通过 |
 | 1.3.0 | 2026-11 | 服务器原始文件库（直接加载 NAS 上的 KML/KMZ/GeoJSON/GPX/SHP，可导入为线路或图层、可上传/删除）、全量线路/图层导出导入（无损备份 JSON + 通用 GeoJSON）、NAS `/api/files` 系列接口与 `file_cli.py`、`GeoJsonExporter` / `ServerFileRepository`、133 项单测 |
-| 1.2.0 | 2026-11 | 自定义地图源 / 地图服务器（可叠加、可设主底图）、自定义图层新建与逐层显示开关、NAS 数据同步（上传 / 下载 / 本地 JSON）、App 内模拟定位（仅本 App 生效，不提供系统级 root 虚拟定位）、Room v4 迁移 |
+| 1.2.0 | 2026-11 | 自定义地图源 / 地图服务器（可叠加、可设主底图）、自定义图层新建与逐层显示开关、NAS 数据同步（上传 / 下载 / 本地 JSON）、Room v4 迁移 |
 | 1.1.1 | 2026-11 | 服务器地址改为运行时可配置（设置页填 NAS 主地址 → 测试连接 → 自动填充三地址）、PMS 请求动态改写、瓦片/WS 地址即时生效并自动重建底图；新增 NAS 自建服务部署工程 `nas-server/`（Docker Compose + 台账 API + 位置共享 + 瓦片服务） |
 | 1.1.0 | 2026-11 | 区域名称 3 级起直接显示（边界线也纳入）、业务点位名称统一收进 12 级起的独立层、主界面按钮/搜索栏/提示条改浅米色、杆塔图标低缩放跳过绘制 |
 | 1.0.18 | 2026-11 | 取消自动跟随与常驻经纬度/精度状态条：打开 App 不再抢镜头，定位按钮改为单次居中，拖动地图不再弹「已退出跟随」 |

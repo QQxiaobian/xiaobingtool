@@ -39,11 +39,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
         val SERVER_PMS = stringPreferencesKey("server_pms_base")
         val SERVER_WS = stringPreferencesKey("server_ws_location")
         val SERVER_TILES = stringPreferencesKey("server_tile_url")
-        // App 内自用的模拟定位（不注入系统、不影响其他应用，见 MockLocationScreen）
-        val MOCK_ENABLED = booleanPreferencesKey("mock_location_enabled")
-        val MOCK_LON = stringPreferencesKey("mock_location_lon")
-        val MOCK_LAT = stringPreferencesKey("mock_location_lat")
-        val MOCK_ACCURACY = floatPreferencesKey("mock_location_accuracy")
     }
 
     /** 用户在设置页填写的服务器地址覆盖值 */
@@ -52,22 +47,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
         val ws: String = "",
         val tiles: String = ""
     )
-
-    /**
-     * App 内自用的模拟定位状态。
-     *
-     * 边界：仅影响本 App 的地图蓝点与「当前位置」补录，不写入系统 LocationProvider，
-     * 不向位置共享 / 巡检轨迹上报，也无需 root。
-     */
-    data class MockState(
-        val enabled: Boolean = false,
-        val lon: Double? = null,
-        val lat: Double? = null,
-        val accuracy: Float = 5f
-    ) {
-        val valid: Boolean get() = enabled && lon != null && lat != null &&
-            lon in -180.0..180.0 && lat in -90.0..90.0
-    }
 
     private val prefs = context.dataStore.data
 
@@ -91,15 +70,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
             it[Keys.SERVER_TILES] ?: ""
         )
     }
-    /** App 内模拟定位（仅本 App 生效） */
-    val mockState: Flow<MockState> = prefs.map {
-        MockState(
-            enabled = it[Keys.MOCK_ENABLED] ?: false,
-            lon = it[Keys.MOCK_LON]?.toDoubleOrNull(),
-            lat = it[Keys.MOCK_LAT]?.toDoubleOrNull(),
-            accuracy = it[Keys.MOCK_ACCURACY] ?: 5f
-        )
-    }
 
     suspend fun setBasemap(v: String) = context.dataStore.edit { it[Keys.BASEMAP] = v }
     suspend fun setTextSize(v: Float) = context.dataStore.edit { it[Keys.TEXT_SIZE] = v.coerceIn(8f, 20f) }
@@ -116,13 +86,6 @@ class SettingsStore @Inject constructor(private val context: Context) {
         it[Keys.SERVER_PMS] = o.pms
         it[Keys.SERVER_WS] = o.ws
         it[Keys.SERVER_TILES] = o.tiles
-    }
-
-    suspend fun setMockState(s: MockState) = context.dataStore.edit {
-        it[Keys.MOCK_ENABLED] = s.enabled
-        it[Keys.MOCK_LON] = s.lon?.toString().orEmpty()
-        it[Keys.MOCK_LAT] = s.lat?.toString().orEmpty()
-        it[Keys.MOCK_ACCURACY] = s.accuracy.coerceIn(1f, 200f)
     }
 
     suspend fun saveCamera(lon: Double, lat: Double, zoom: Float) = context.dataStore.edit {
