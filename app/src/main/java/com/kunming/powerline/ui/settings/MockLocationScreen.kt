@@ -53,7 +53,11 @@ import com.kunming.powerline.ui.theme.PowerRed
  * 明确不提供：root 权限的系统级虚拟定位 / 向第三方应用注入伪造位置。
  */
 @Composable
-fun MockLocationScreen(vm: MapViewModel, onBack: () -> Unit) {
+fun MockLocationScreen(
+    vm: MapViewModel,
+    onBack: () -> Unit,
+    onPickOnMap: () -> Unit = {}
+) {
     val state by vm.mockState.collectAsStateWithLifecycle()
     var lon by remember(state.lon) { mutableStateOf(state.lon?.toString() ?: "") }
     var lat by remember(state.lat) { mutableStateOf(state.lat?.toString() ?: "") }
@@ -147,7 +151,7 @@ fun MockLocationScreen(vm: MapViewModel, onBack: () -> Unit) {
                     shape = RoundedCornerShape(10.dp)
                 )
                 Text(
-                    "可粘贴度分秒转换后的十进制坐标；也可在地图上长按目标点取得坐标。",
+                    "可粘贴度分秒转换后的十进制坐标；也可点击下方按钮，直接在地图上点选目标位置。",
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 16.sp
                 )
 
@@ -167,6 +171,12 @@ fun MockLocationScreen(vm: MapViewModel, onBack: () -> Unit) {
                         modifier = Modifier.weight(1f).height(38.dp)
                     ) { Text("保存并开启", fontSize = 12.sp) }
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onPickOnMap,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().height(38.dp)
+                ) { Text("在地图上点选位置", fontSize = 12.sp) }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { apply(false) },
