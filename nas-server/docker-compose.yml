@@ -11,7 +11,12 @@
 #   8090  纯静态瓦片（nginx，性能更好，推荐 App 用这个）
 services:
   pms:
-    build: ./pms
+    build:
+      context: ./pms
+      args:
+        # 飞牛 fnOS 自带加速源不可用时，在 .env 里把 BASE_IMAGE 指向可用镜像源
+        BASE_IMAGE: "${BASE_IMAGE:-python:3.11-slim}"
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-}"
     container_name: powerline-pms
     restart: unless-stopped
     ports:
@@ -38,7 +43,7 @@ services:
       retries: 3
 
   tiles:
-    image: nginx:1.27-alpine
+    image: "${TILES_IMAGE:-nginx:1.27-alpine}"
     container_name: powerline-tiles
     restart: unless-stopped
     ports:

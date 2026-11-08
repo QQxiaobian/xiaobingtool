@@ -35,7 +35,20 @@ fi
 
 # 3) 启动
 echo "==> 构建并启动容器..."
-$DC up -d --build
+if ! $DC up -d --build; then
+  echo
+  echo "!! 构建/启动失败。" >&2
+  echo "   若日志出现 docker.fnnas.com / no route to host / 401 Unauthorized，" >&2
+  echo "   那是飞牛 fnOS 自带的镜像加速源不可用，与本工程代码无关：" >&2
+  echo "   构建卡在拉取基础镜像元数据这一步，Dockerfile 一行都没执行到。" >&2
+  echo "   任选其一处理：" >&2
+  echo "     1) 飞牛 Docker 面板 → 镜像仓库 → 仓库设置，换成 https://docker.1ms.run 并重启 Docker 服务" >&2
+  echo "     2) 在 .env 里设 BASE_IMAGE / TILES_IMAGE 指向可用加速源（见 .env.example）" >&2
+  echo "     3) bash tools/prepare-images.sh import  离线导入镜像后重跑" >&2
+  echo "     4) bash tools/run-local.sh             完全不用 Docker" >&2
+  echo "   详见 README「镜像拉取失败」一节。" >&2
+  exit 1
+fi
 
 # 4) 健康检查
 echo "==> 等待服务就绪..."

@@ -103,6 +103,8 @@ python3 tools/file_cli.py delete <id>
 2. 手机与 NAS 同一内网；Android 端已配置 `usesCleartextTraffic="true"`，HTTP/WS 明文可用，不必上证书。
 3. 若是群晖：把 `nas-server` 整个目录放进 `/docker/powerline/`，用「项目 → 新增 → 从 docker-compose.yml 创建」，
    或 SSH 后执行 `bash deploy.sh`。
+4. **Docker 能拉到基础镜像**（`python:3.11-slim`、`nginx:1.27-alpine`）。飞牛 fnOS 自带的
+   加速源 `docker.fnnas.com` 经常失效，若构建卡在「load metadata」请看下一节。
 
 ```bash
 cd nas-server
@@ -112,6 +114,88 @@ docker compose logs -f pms
 ```
 
 部署脚本最后会**直接打印三行 App 配置**，照抄即可。
+
+### 2.5 镜像拉取失败（飞牛 fnOS 自带加速源不可用）
+
+**典型报错**：
+
+```
+#3 [internal] load metadata for docker.io/library/python:3.11-slim
+#3 ERROR: Head "https://docker.fnnas.com/v2/library/python/manifests/3.11-slim?ns=docker.io":
+          dial tcp 171.15.36.24:443: connect: no route to host
+failed to solve: python:3.11-slim: failed to resolve source metadata
+```
+
+**这不是本工程的代码问题**。构建停在第 3 步「解析基础镜像元数据」，连 `Dockerfile`
+第 2 行都还没执行。飞牛 fnOS 的 Docker 守护进程把所有 `docker.io` 请求代理到自带的
+加速域名 `docker.fnnas.com`（`171.15.36.24`）；当它不可达（`no route to host`）或对
+官方库镜像返回 `401 Unauthorized` 时，构建就在这里中断。
+
+> 顺带提醒：解决基础镜像后，`tiles` 容器的 `nginx:1.27-alpine` 和构建里的
+> `pip install` 同样要走外网，需要一并可用，否则会在下一步继续失败。
+
+四条路，按推荐顺序：
+
+**① 换加速源（最省事，一次解决）**
+
+飞牛桌面端：**Docker → 镜像仓库 → 仓库设置**，把 `docker.fnnas.com` 换成
+`https://docker.1ms.run`（备用 `https://docker.1panel.live`、阿里云「容器镜像服务」
+给你的个人加速器地址），然后在 Docker 面板右上角**停止并重启 Docker 服务**，重新
+`docker compose up -d --build`。命令行方式是改 `/etc/docker/daemon.json` 的
+`registry-mirrors` 后重启 docker。可先在 NAS 上自测链路：
+
+```bash
+curl -I https://docker.1ms.run/v2/          # 返回 401 即代表链路通（401 是正常鉴权响应）
+docker pull docker.1ms.run/library/python:3.11-slim
+```
+
+**② 只改 `.env`，不改源码**
+
+工程已把镜像名做成可配置项，在 `.env` 里填两行即可：
+
+```properties
+BASE_IMAGE=docker.1ms.run/library/python:3.11-slim
+TILES_IMAGE=docker.1ms.run/library/nginx:1.27-alpine
+# pip 装不上时再加：
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+`BASE_IMAGE` 会作为 `--build-arg` 传给 `Dockerfile` 的 `FROM`，`TILES_IMAGE` 替换
+nginx 镜像；默认值不变，不影响其他 NAS。也可用
+`docker compose build --build-arg BASE_IMAGE=...` 临时覆盖。
+
+**③ 完全离线：导入镜像再构建**
+
+NAS 没有外网时用这个。在能联网的电脑上导出，NAS 上导入并打回本地标签，
+compose 会直接命中本地镜像而不再访问加速源：
+
+```bash
+# 能联网的机器（nas-server 目录下）
+bash tools/prepare-images.sh export
+scp -r offline-images/ user@NAS:/path/to/nas-server/
+
+# NAS 上
+bash tools/prepare-images.sh import
+DOCKER_BUILDKIT=0 docker compose up -d --build
+```
+
+`DOCKER_BUILDKIT=0` 是为了让旧版 builder 优先用本地镜像、不去 HEAD manifest；
+若导入后仍尝试联网，用 `docker pull <加速源>/library/python:3.11-slim` +
+`docker tag <...> python:3.11-slim` 手工打标签（`nginx` 同理）再构建。
+脚本的加速源可用 `REGISTRY_PREFIX=docker.1panel.live` 覆盖。
+
+**④ 不用 Docker（最终兜底）**
+
+Flask 服务依赖极少，且 8080 已内置 `/tiles/` 瓦片路由，不跑 nginx 也能出图：
+
+```bash
+bash tools/run-local.sh          # 前台运行，Ctrl+C 停止
+# 国内源： PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash tools/run-local.sh
+```
+
+脚本会建好 `data/` 目录、透明占位瓦片与 `.venv` 并启动。App 里仍填 `NAS_IP:8080`，
+`TILE_PUBLIC_URL` 保持留空（走 8080 内置瓦片）。需要开机自启就把该脚本挂到
+systemd 或飞牛「计划任务」。
 
 ## 三、瓦片从哪来（三选一）
 
@@ -259,6 +343,8 @@ App 上逐项确认：
 | 位置共享连不上 | `WS_LOCATION_URL` 用 `ws://` 不是 `http://`；地址别带 `?room=`；两台手机房间号一致 |
 | 台账列表为空 | 看 `/health` 的 `pmsLines`；确认已跑 `import_excel.py`；`SEED_DEMO=0` 且未导入时就是空 |
 | 容器起不来 | `docker compose logs -f pms`；8080/8090 是否被 NAS 上其他服务占用（改 `.env` 端口） |
+| 构建卡在 `load metadata` / `docker.fnnas.com` `no route to host` / `401 Unauthorized` | 飞牛 fnOS 加速源失效，与本工程无关。按「2.5 镜像拉取失败」换加速源、设 `BASE_IMAGE`/`TILES_IMAGE`、离线导入镜像或改用 `run-local.sh` |
+| 构建时 `pip install` 超时 / 连不上 pypi | `.env` 里设 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`，或走离线 / 无 Docker 方案 |
 
 ## 九、App 端实现说明（v1.1.1 运行时配置 / v1.2.0 数据同步 / v1.3.0 原始文件与全量交换）
 
