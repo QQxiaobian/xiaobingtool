@@ -81,6 +81,33 @@ class ThematicRepository @Inject constructor(
         return "$name ($i)"
     }
 
+    /**
+     * 用户手动新建一个空白自定义图层。
+     *
+     * 之后可以：从文件导入要素后移动进该图层、把已有要素改归属、或作为数据同步的容器。
+     * 图层默认可见、名称可见，同名自动加序号，几何类型由用户选择（point/line/polygon/mixed）。
+     */
+    suspend fun createLayer(
+        name: String,
+        geometryType: String,
+        color: Int,
+        remark: String?
+    ): ThematicLayerEntity = withContext(Dispatchers.IO) {
+        val e = ThematicLayerEntity(
+            id = newId("TL"),
+            name = uniqueName(name.trim().ifBlank { "新建图层" }),
+            geometryType = geometryType,
+            color = color,
+            visible = true,
+            featureCount = 0,
+            sourceFormat = "custom",
+            remark = remark?.trim()?.takeIf { it.isNotBlank() },
+            labelVisible = true
+        )
+        dao.upsertLayer(e)
+        e
+    }
+
     suspend fun setVisible(id: String, visible: Boolean) = withContext(Dispatchers.IO) {
         dao.setVisible(id, visible)
     }

@@ -29,10 +29,38 @@ App 里已经预留了三个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 | GET | `/api/units` | `{"units":[...]}` |
 | GET | `/api/import/pms-ledger?lineIds=a,b&includeTowers=true...` | `PmsLedgerBundle`（4 个数组） |
 | POST | `/api/import/pms-ledger` | `ImportAckDto`（按主键 UPSERT） |
-| GET | `/health` | 服务状态与统计 |
+| GET | `/health` | 服务状态与统计（1.2.0 起含 `datasets` 数量） |
+| GET | `/api/datasets` | `DatasetMetaDto[]`（仅元数据，传输量小） |
+| GET | `/api/datasets/{id}` | 完整 `DatasetBundleDto`（图层 + 要素 + 线路台账） |
+| GET | `/api/datasets/{id}/download` | 下载为 `.json` 文件 |
+| POST | `/api/datasets` | 上传 / 覆盖数据集（同 id 递增 version） |
+| POST | `/api/datasets/import` | 上传本地 JSON 文件导入 |
+| DELETE | `/api/datasets/{id}` | 删除数据集 |
 
 WebSocket：`ws://<NAS>:8080/ws/location?room=xxx`，App 会自动在地址后补 `?room=`。
 客户端上报 `{"userId","lon","lat","speed","ts"}`，服务端广播给同房间其他人（不发回自己）。
+
+### 数据集服务（1.2.0 新增）
+
+App「设置 → 自定义地图与数据 → 数据同步」可以把**专题图层 + 要素**、**线路 / 杆塔台账**
+打包上传，也可以浏览、下载、删除服务器上的数据集，或导出成本地 JSON 文件离线流转。
+
+- 数据落在 SQLite 的 `datasets` 表（`/data/pms.db`，跟台账同一个卷，容器重建不丢），
+  `payload` 字段保存完整 `powerline-dataset/1` JSON；**不需要额外端口**，仍走 8080 的 `PMS_BASE_URL`。
+- 同 `id` 覆盖并自动递增 `version`；列表接口只返回元数据（名称 / 统计 / 时间 / 大小），不传要素。
+- 服务端与 App 导出文件格式完全一致，因此 `App 导出 JSON → 拷到电脑 → 命令行上传` 是可行的。
+
+命令行工具（`tools/dataset_cli.py`，只用 Python 标准库）：
+
+```bash
+python3 tools/dataset_cli.py --base http://192.168.1.10:8080 list
+python3 tools/dataset_cli.py download DS-xxxxxxxx -o 备份.json
+python3 tools/dataset_cli.py upload 备份.json
+python3 tools/dataset_cli.py delete DS-xxxxxxxx
+# 服务端开启 API_TOKEN 时加 --token <token>
+```
+
+也可直接用浏览器打开 `http://<NAS>:8080/api/datasets/<id>/download` 下载 JSON。
 
 ## 二、部署（3 步）
 
@@ -200,14 +228,19 @@ App 上逐项确认：
 | 台账列表为空 | 看 `/health` 的 `pmsLines`；确认已跑 `import_excel.py`；`SEED_DEMO=0` 且未导入时就是空 |
 | 容器起不来 | `docker compose logs -f pms`；8080/8090 是否被 NAS 上其他服务占用（改 `.env` 端口） |
 
-## 九、App 端实现说明（v1.1.1 已实现运行时配置）
+## 九、App 端实现说明（v1.1.1 运行时配置 / v1.2.0 数据同步）
 
 | 位置 | 做法 |
 |---|---|
 | `data/prefs/ServerConfig.kt` | 单例保存三个最终生效地址，DataStore 持久化，暴露 Flow + 同步 getter |
 | `di/ServerUrlInterceptor.kt` | 只挂在 PmsApi 专用 OkHttpClient 上，逐请求替换 scheme/host/port/前缀，Retrofit 无需重建；**不能加全局 client**，否则在线瓦片下载会被一起重定向 |
 | `LocationShareSocket.kt` | 连接时读运行时 WS 地址 |
-| `Basemap.kt` / `MapController.kt` / `MapLibreView.kt` | 瓦片地址作为参数传入 style JSON，`LaunchedEffect` 监听变化自动重建底图并保留相机 |
+| `Basemap.kt` / `MapController.kt` / `MapLibreView.kt` | 瓦片地址与自定义地图源作为参数传入 style JSON，`LaunchedEffect` 监听变化自动重建底图并保留相机 |
 | `ui/settings/ServerSettingsScreen.kt` | 主地址一键推导、测试连接、高级覆盖、恢复默认 |
+| `data/remote/PmsApi.kt` | v1.2.0 新增 `api/datasets` 的 list / download / upload / delete，复用同一个动态地址拦截器 |
+| `data/repository/DataSyncRepository.kt` | v1.2.0 组装本机图层 + 线路台账为 `DatasetBundleDto`，上传、下载合并、本地 JSON 导入导出 |
+| `ui/settings/DataSyncScreen.kt` | v1.2.0 上传 / 下载 / 删除 / 导出 / 导入三路入口 |
+| `ui/settings/CustomMapSourceScreen.kt` | v1.2.0 自定义 XYZ / TMS 地图源管理，可叠加或设为主底图 |
 
-因此换 NAS IP 只需在 App 设置里改一次，历史安装包无需重发。
+因此换 NAS IP 只需在 App 设置里改一次，历史安装包无需重发；
+**数据同步也走同一个 8080 地址，不需要额外开端口或改 nginx**。

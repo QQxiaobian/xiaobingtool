@@ -29,8 +29,8 @@ android {
         applicationId = "com.kunming.powerline"
         minSdk = 26
         targetSdk = 34
-        versionCode = 21
-        versionName = "1.1.1"
+        versionCode = 22
+        versionName = "1.2.0"
 
         if (abiFilter.isNotBlank()) {
             ndk { abiFilters.clear(); abiFilters += abiFilter }

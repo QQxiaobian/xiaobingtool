@@ -122,6 +122,8 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val peers by vm.peers.collectAsStateWithLifecycle()
     val shareConnected by vm.shareConnected.collectAsStateWithLifecycle()
     val server by vm.serverAddresses.collectAsStateWithLifecycle()
+    val customSources by vm.customSourceSpecs.collectAsStateWithLifecycle()
+    val mockState by vm.mockState.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
     var showHelp by remember { mutableStateOf(false) }
@@ -146,6 +148,9 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var managerTarget by remember { mutableStateOf<MapLayer?>(null) }
     var showMapData by remember { mutableStateOf(false) }
     var showServerSettings by remember { mutableStateOf(false) }
+    var showCustomMapSources by remember { mutableStateOf(false) }
+    var showDataSync by remember { mutableStateOf(false) }
+    var showMockLocation by remember { mutableStateOf(false) }
     // 点击专题区域/点位后弹出的信息卡
     var thematicSheet by remember { mutableStateOf<com.kunming.powerline.data.local.entity.ThematicFeatureEntity?>(null) }
 
@@ -173,10 +178,14 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
 
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
-        enabled = showMapData || showServerSettings || managerTarget != null || showImport || showSettings ||
+        enabled = showMapData || showServerSettings || showCustomMapSources || showDataSync ||
+            showMockLocation || managerTarget != null || showImport || showSettings ||
             showLayers || showBasemap || showResults || showTowerSheet || drawMode
     ) {
         when {
+            showCustomMapSources -> showCustomMapSources = false
+            showDataSync -> showDataSync = false
+            showMockLocation -> showMockLocation = false
             showServerSettings -> showServerSettings = false
             showMapData -> showMapData = false
             managerTarget != null -> managerTarget = null
@@ -319,6 +328,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             controller = controller,
             initialBasemap = basemap,
             serverTileBase = server.tileServer,
+            customSources = customSources,
             onTap = { lat, lon, x, y ->
                 // 手动操作地图 -> 退出跟随
                 if (followMode) vm.setFollowMode(false)
@@ -438,7 +448,13 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
 
         // ---------------- 左侧图层面板 ----------------
         Box(Modifier.align(Alignment.CenterStart).fillMaxHeight()) {
-            LayerPanel(visible = showLayers, layerState = layerState, onToggle = { vm.toggleLayer(it) }, onManage = { l ->
+            LayerPanel(
+                visible = showLayers,
+                layerState = layerState,
+                thematicLayers = thematicLayers,
+                onToggle = { vm.toggleLayer(it) },
+                onToggleThematic = { id, on -> vm.setThematicVisible(id, on) },
+                onManage = { l ->
                 showLayers = false
                 if (l == MapLayer.OVERHEAD_LINE) {
                     showImport = true
@@ -672,6 +688,9 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 },
                 onOpenMapDataSettings = { showSettings = false; showMapData = true },
                 onOpenServerSettings = { showSettings = false; showServerSettings = true },
+                onOpenCustomMapSources = { showSettings = false; showCustomMapSources = true },
+                onOpenDataSync = { showSettings = false; showDataSync = true },
+                onOpenMockLocation = { showSettings = false; showMockLocation = true },
                 onOpenGroupSettings = { navInfo = "地图组设置：按区域 / 单位分组" },
                 onBack = { showSettings = false },
                 sectionResult = sectionResult,
@@ -693,6 +712,24 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                     Spacer(Modifier.height(10.dp))
                     Text(busy!!, color = Color(0xFF2B2B2B), fontSize = 13.sp)
                 }
+            }
+        }
+
+        // ---------------- 模拟定位标记（明确区分真实 / 演示位置） ----------------
+        if (mockState.valid) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 8.dp)
+                    .background(Color(0xFFFFF3E0), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    "模拟定位（仅本 App）· 非真实位置",
+                    color = Color(0xFF8A4B00), fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
@@ -751,6 +788,32 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 com.kunming.powerline.ui.settings.ServerSettingsScreen(
                     vm = vm,
                     onBack = { showServerSettings = false }
+                )
+            }
+        }
+
+        // ---------------- 自定义地图源 / 数据同步 / 模拟定位（1.2.0） ----------------
+        if (showCustomMapSources) {
+            Box(Modifier.fillMaxSize()) {
+                com.kunming.powerline.ui.settings.CustomMapSourceScreen(
+                    vm = vm,
+                    onBack = { showCustomMapSources = false }
+                )
+            }
+        }
+        if (showDataSync) {
+            Box(Modifier.fillMaxSize()) {
+                com.kunming.powerline.ui.settings.DataSyncScreen(
+                    vm = vm,
+                    onBack = { showDataSync = false }
+                )
+            }
+        }
+        if (showMockLocation) {
+            Box(Modifier.fillMaxSize()) {
+                com.kunming.powerline.ui.settings.MockLocationScreen(
+                    vm = vm,
+                    onBack = { showMockLocation = false }
                 )
             }
         }

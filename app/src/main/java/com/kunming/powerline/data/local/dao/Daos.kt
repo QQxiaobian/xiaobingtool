@@ -280,12 +280,25 @@ interface MiscDao {
     @Upsert suspend fun upsertGroup(g: MapGroupEntity): Long
     @Query("DELETE FROM map_group WHERE id = :id") suspend fun deleteGroup(id: Long)
 
-    // ---- 在线地图 ----
-    @Query("SELECT * FROM online_map")
+    // ---- 在线地图（自定义地图源 / 自定义地图服务器） ----
+    @Query("SELECT * FROM online_map ORDER BY sortOrder ASC, name ASC")
     fun observeOnlineMaps(): Flow<List<OnlineMapEntity>>
+
+    @Query("SELECT * FROM online_map ORDER BY sortOrder ASC, name ASC")
+    suspend fun getOnlineMaps(): List<OnlineMapEntity>
 
     @Upsert suspend fun upsertOnlineMap(m: OnlineMapEntity)
     @Query("DELETE FROM online_map WHERE id = :id") suspend fun deleteOnlineMap(id: String)
+
+    @Query("UPDATE online_map SET enabled = :enabled WHERE id = :id")
+    suspend fun setOnlineMapEnabled(id: String, enabled: Boolean)
+
+    /** 主底图互斥：先把全部置 false，再把指定源置 true */
+    @Query("UPDATE online_map SET asBase = 0")
+    suspend fun clearBaseFlags()
+
+    @Query("UPDATE online_map SET asBase = 1 WHERE id = :id")
+    suspend fun setAsBase(id: String)
 
     // ---- 离线包 ----
     @Query("SELECT * FROM offline_pack ORDER BY createdAt DESC")

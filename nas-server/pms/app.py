@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS conductors(
   model TEXT, sectionArea REAL, splitCount INTEGER
 );
 CREATE TABLE IF NOT EXISTS units(name TEXT PRIMARY KEY);
+-- 1.2.0：App 上传 / 下载的数据集（图层 + 要素 + 线路台账）
+CREATE TABLE IF NOT EXISTS datasets(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT DEFAULT 'mixed',
+  version INTEGER DEFAULT 1, updated_at TEXT,
+  layer_count INTEGER DEFAULT 0, feature_count INTEGER DEFAULT 0,
+  line_count INTEGER DEFAULT 0, tower_count INTEGER DEFAULT 0,
+  size_bytes INTEGER DEFAULT 0, payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_datasets_updated ON datasets(updated_at);
 """
 
 DEMO_LINES = [
@@ -137,7 +146,7 @@ def guard():
 def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Headers"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,DELETE,OPTIONS"
     return resp
 
 
@@ -159,6 +168,7 @@ def health():
     with db() as c:
         nl = c.execute("SELECT COUNT(*) FROM lines").fetchone()[0]
         nt = c.execute("SELECT COUNT(*) FROM towers").fetchone()[0]
+        nd = c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
     tiles = sum(1 for _ in TILE_ROOT.rglob("*.png")) if TILE_ROOT.exists() else 0
 
     prefix = request.headers.get("X-Forwarded-Prefix", "").rstrip("/")
@@ -177,16 +187,19 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.1",
+        "version": "1.2",
         "pmsLines": nl,
         "pmsTowers": nt,
+        "datasets": nd,
         "tiles": tiles,
         "tileRoot": str(TILE_ROOT),
         "auth": "on" if API_TOKEN else "off",
         "urls": urls,
-        "hint": "App 只需填 pmsBase 一个地址；tileServerNginx 存在时可把瓦片改到 8090",
+        "hint": "App 只需填 pmsBase 一个地址；1.2.0 起可在「数据同步」里上传/下载图层与线路数据",
         "endpoints": ["/api/lines", "/api/towers", "/api/units",
-                      "/api/import/pms-ledger", "/ws/location", "/tiles/{z}/{x}/{y}.png"],
+                      "/api/import/pms-ledger", "/api/datasets (GET/POST)",
+                      "/api/datasets/{id} (GET/DELETE)", "/api/datasets/{id}/download",
+                      "/api/datasets/import", "/ws/location", "/tiles/{z}/{x}/{y}.png"],
     })
 
 
@@ -310,6 +323,122 @@ def push_ledger():
                           f"VALUES({placeholders})", values)
                 count += 1
     return jsonify({"success": True, "message": "台账已同步", "count": count})
+
+
+# ---------------------------------------------------------------- 数据集（1.2.0）
+# App「数据同步」页用它上传 / 下载图层与线路数据，也可用 tools/dataset_cli.py 离线管理。
+# 格式契约：powerline-dataset/1，见 App 端 data/remote/model/DatasetModels.kt
+def dataset_counts(body):
+    layers = body.get("layers") or []
+    ledger = body.get("ledger") or {}
+    return (
+        len(layers),
+        sum(len(x.get("features") or []) for x in layers),
+        len(ledger.get("lines") or []),
+        len(ledger.get("towers") or []),
+    )
+
+
+def save_dataset(body):
+    dsid = (body.get("id") or "").strip() or ("DS-" + str(time.time_ns()))
+    name = (body.get("name") or "未命名数据集").strip()
+    if "/" in name or "\\" in name:
+        return {"success": False, "message": "名称不能包含路径分隔符", "count": 0}
+    payload = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+    nl, nf, nlines, ntowers = dataset_counts(body)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    with db() as c:
+        old = c.execute("SELECT version FROM datasets WHERE id=?", (dsid,)).fetchone()
+        version = (old["version"] + 1) if old else 1
+        c.execute("""INSERT INTO datasets(id,name,kind,version,updated_at,
+                     layer_count,feature_count,line_count,tower_count,size_bytes,payload)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(id) DO UPDATE SET
+                     name=excluded.name, kind=excluded.kind, version=excluded.version,
+                     updated_at=excluded.updated_at, layer_count=excluded.layer_count,
+                     feature_count=excluded.feature_count, line_count=excluded.line_count,
+                     tower_count=excluded.tower_count, size_bytes=excluded.size_bytes,
+                     payload=excluded.payload""",
+                  (dsid, name, body.get("kind") or "mixed", version, now,
+                   nl, nf, nlines, ntowers, len(payload.encode("utf-8")), payload))
+    return {
+        "success": True, "message": "数据集已同步", "count": nl + nlines,
+        "id": dsid, "version": version, "name": name,
+        "layers": nl, "features": nf, "lines": nlines, "towers": ntowers,
+    }
+
+
+def dataset_row(r):
+    try:
+        note = json.loads(r["payload"]).get("note")
+    except Exception:
+        note = None
+    return {
+        "id": r["id"], "name": r["name"], "kind": r["kind"],
+        "version": r["version"], "updatedAt": r["updated_at"],
+        "layerCount": r["layer_count"], "featureCount": r["feature_count"],
+        "lineCount": r["line_count"], "towerCount": r["tower_count"],
+        "sizeBytes": r["size_bytes"], "note": note,
+    }
+
+
+@app.get("/api/datasets")
+def list_datasets():
+    """只返回元数据，不含要素，列表传输量很小"""
+    return jsonify([dataset_row(r) for r in rows(
+        "SELECT * FROM datasets ORDER BY updated_at DESC"
+    )])
+
+
+@app.get("/api/datasets/<dsid>")
+def get_dataset(dsid):
+    rs = rows("SELECT payload FROM datasets WHERE id=?", (dsid,))
+    if not rs:
+        return jsonify({"success": False, "message": "数据集不存在"}), 404
+    return app.response_class(rs[0]["payload"], mimetype="application/json")
+
+
+@app.get("/api/datasets/<dsid>/download")
+def download_dataset(dsid):
+    """浏览器 / 命令行下载成 .json 文件，可直接用 App「导入本地 JSON」读回"""
+    rs = rows("SELECT name, payload FROM datasets WHERE id=?", (dsid,))
+    if not rs:
+        return jsonify({"success": False, "message": "数据集不存在"}), 404
+    safe = "".join(c for c in rs[0]["name"] if c not in '/\\\r\n')[:60] or dsid
+    resp = app.response_class(rs[0]["payload"], mimetype="application/json")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{safe}.json"'
+    return resp
+
+
+@app.post("/api/datasets")
+def upload_dataset():
+    """App 上传数据集：同 id 覆盖并递增 version"""
+    result = save_dataset(request.get_json(silent=True) or {})
+    if not result.get("success"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/datasets/import")
+def import_dataset_file():
+    """从本地 JSON 文件导入（multipart 的 file 字段或 raw body）"""
+    f = request.files.get("file") if request.files else None
+    raw = f.read().decode("utf-8") if f else (request.get_data(as_text=True) or "")
+    try:
+        body = json.loads(raw)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "JSON 解析失败"}), 400
+    result = save_dataset(body)
+    if not result.get("success"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.delete("/api/datasets/<dsid>")
+def delete_dataset(dsid):
+    with db() as c:
+        n = c.execute("DELETE FROM datasets WHERE id=?", (dsid,)).rowcount
+    return jsonify({"success": True, "message": "已删除" if n else "数据集不存在", "count": n})
 
 
 # ---------------------------------------------------------------- XYZ 瓦片

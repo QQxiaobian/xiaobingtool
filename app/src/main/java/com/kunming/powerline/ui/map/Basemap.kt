@@ -99,15 +99,22 @@ object TileSourceFactory {
     fun buildStyleJson(
         type: BasemapType,
         extraTileUrls: List<Pair<String, String>> = emptyList(),
-        serverTileBase: String = BuildConfig.TILE_SERVER_URL
+        serverTileBase: String = BuildConfig.TILE_SERVER_URL,
+        customSources: List<CustomSourceSpec> = emptyList()
     ): String {
         val sb = StringBuilder()
         sb.append("""{"version":8,"name":"${type.name}","sources":{""")
 
-        val primaryUrl = if (type.isServer) serverTileUrl(type, serverTileBase) else primaryTileUrl(type)
-        val primaryTiles = tilesJson(expandTiles(primaryUrl))
+        // 自定义源中最多一个「主底图」，替代内置 / 服务器版底图；其余作为叠加层
+        val base = customSources.firstOrNull { it.asBase }
+        val primaryTiles = if (base != null) {
+            base.tiles.joinToString(",") { "\"${CustomMapSource.jsonEscape(it)}\"" }
+        } else {
+            val primaryUrl = if (type.isServer) serverTileUrl(type, serverTileBase) else primaryTileUrl(type)
+            tilesJson(expandTiles(primaryUrl))
+        }
         sb.append(
-            """"basemap":{"type":"raster","tiles":[$primaryTiles],"tileSize":256,"minzoom":0,"maxzoom":18,"scheme":"xyz"}"""
+            """"basemap":{"type":"raster","tiles":[$primaryTiles],"tileSize":${base?.tileSize ?: 256},"minzoom":${base?.minZoom ?: 0},"maxzoom":${base?.maxZoom ?: 18},"scheme":"${base?.scheme ?: "xyz"}"}"""
         )
 
         val overlay = overlayTileUrl(type)
@@ -122,6 +129,14 @@ object TileSourceFactory {
             sb.append(""","$id":{"type":"raster","tiles":["$url"],"tileSize":256,"minzoom":0,"maxzoom":18}""")
         }
 
+        val customOverlays = customSources.filter { !it.asBase }
+        customOverlays.forEachIndexed { i, s ->
+            val urls = s.tiles.joinToString(",") { "\"${CustomMapSource.jsonEscape(it)}\"" }
+            sb.append(
+                ""","custom-src-$i":{"type":"raster","tiles":[$urls],"tileSize":${s.tileSize},"minzoom":${s.minZoom},"maxzoom":${s.maxZoom},"scheme":"${s.scheme}"}"""
+            )
+        }
+
         sb.append("""},"layers":[""")
         // 背景
         sb.append("""{"id":"background","type":"background","paint":{"background-color":"#0E1116"}}""")
@@ -132,6 +147,9 @@ object TileSourceFactory {
         }
         extraTileUrls.forEachIndexed { i, (id, _) ->
             sb.append(""",{"id":"extra-$i","type":"raster","source":"$id","paint":{"raster-opacity":0.9}}""")
+        }
+        customOverlays.forEachIndexed { i, s ->
+            sb.append(""",{"id":"custom-lyr-$i","type":"raster","source":"custom-src-$i","paint":{"raster-opacity":${s.opacity}}}""")
         }
         sb.append("]}")
 

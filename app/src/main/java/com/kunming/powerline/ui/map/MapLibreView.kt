@@ -17,6 +17,9 @@ import org.maplibre.android.maps.MapView
 
 /**
  * Compose 容器：用 AndroidView 嵌入 MapView，并把生命周期透传过去
+ *
+ * customSources 变化时（增删 / 启停 / 设为主底图）会重建样式并保留相机位置。
+ * List 为 data class 内容比较，内容不变不会触发重建。
  */
 @Composable
 fun MapLibreView(
@@ -24,6 +27,7 @@ fun MapLibreView(
     controller: MapController,
     initialBasemap: BasemapType,
     serverTileBase: String = com.kunming.powerline.BuildConfig.TILE_SERVER_URL,
+    customSources: List<CustomSourceSpec> = emptyList(),
     onMapReady: (MapController) -> Unit = {},
     onTap: (lat: Double, lon: Double, x: Float, y: Float) -> Unit = { _, _, _, _ -> },
     onLongPress: (lat: Double, lon: Double, x: Float, y: Float) -> Unit = { _, _, _, _ -> }
@@ -85,18 +89,24 @@ fun MapLibreView(
                     true
                 }
                 onMapReady(controller)
-                controller.loadBasemap(initialBasemap, keepCamera = false, tileServerBase = serverTileBase)
+                controller.loadBasemap(
+                    initialBasemap,
+                    keepCamera = false,
+                    tileServerBase = serverTileBase,
+                    customSources = customSources
+                )
             }
         }
     }
 
-    // 底图切换 / 服务器瓦片地址变更：保留 CameraPosition 重建样式
-    LaunchedEffect(initialBasemap, serverTileBase) {
+    // 底图切换 / 服务器瓦片地址 / 自定义地图源变更：保留 CameraPosition 重建样式
+    LaunchedEffect(initialBasemap, serverTileBase, customSources) {
         if (controller.map != null) {
             controller.loadBasemap(
                 initialBasemap,
                 keepCamera = true,
-                tileServerBase = serverTileBase
+                tileServerBase = serverTileBase,
+                customSources = customSources
             )
         }
     }

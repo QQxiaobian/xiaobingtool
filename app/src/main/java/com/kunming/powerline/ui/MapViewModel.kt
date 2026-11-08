@@ -14,6 +14,12 @@ import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.LineEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
 import com.kunming.powerline.data.local.entity.TowerEntity
+import android.net.Uri
+import com.kunming.powerline.data.local.entity.OnlineMapEntity
+import com.kunming.powerline.data.remote.model.DatasetMetaDto
+import com.kunming.powerline.data.repository.CustomMapSourceRepository
+import com.kunming.powerline.data.repository.DataSyncRepository
+import com.kunming.powerline.ui.map.CustomSourceSpec
 import com.kunming.powerline.data.location.AmapLocationClient
 import com.kunming.powerline.data.location.FixLocation
 import com.kunming.powerline.data.location.LocationShareSocket
@@ -90,7 +96,9 @@ class MapViewModel @Inject constructor(
     val offlineStore: com.kunming.powerline.data.offline.OfflineTileStore,
     val tileDownloader: com.kunming.powerline.data.offline.TileDownloader,
     val compass: com.kunming.powerline.data.sensor.CompassSensor,
-    private val db: AppDatabase
+    private val db: AppDatabase,
+    private val customMapRepo: CustomMapSourceRepository,
+    private val dataSync: DataSyncRepository
 ) : ViewModel() {
 
     // ---------------- 数据流 ----------------
@@ -166,6 +174,23 @@ class MapViewModel @Inject constructor(
 
     // ---------------- 服务器地址（运行时可改，无需重新打包） ----------------
     val serverAddresses: StateFlow<ServerAddresses> = serverConfig.state
+
+    // ---------------- 1.2.0：自定义地图源 / 数据同步 / App 内模拟定位 ----------------
+    /** 自定义地图源原始记录（管理页用） */
+    val customMapSources: StateFlow<List<OnlineMapEntity>> = customMapRepo.sources
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 已启用且可直接渲染的自定义源规格（地图用） */
+    val customSourceSpecs: StateFlow<List<CustomSourceSpec>> = customMapRepo.specs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _mockState = MutableStateFlow(SettingsStore.MockState())
+    /**
+     * App 内自用的模拟定位状态。
+     * 边界：只改本 App 的蓝点与「当前位置」补录，不写系统 LocationProvider、
+     * 不进入位置共享与巡检轨迹、不需要 root。
+     */
+    val mockState: StateFlow<SettingsStore.MockState> = _mockState.asStateFlow()
 
     fun saveServerAddresses(a: ServerAddresses, onDone: (String) -> Unit) {
         viewModelScope.launch {
@@ -280,13 +305,27 @@ class MapViewModel @Inject constructor(
             combine(lines, towers, cables, favorites, takeoffs, cameras, guardians, dangers, crossings) { _ -> }
                 .collect { _layerVersion.value = System.currentTimeMillis() }
         }
-        // 定位数据
+        // 定位数据（模拟定位开启时忽略真实 GPS，避免蓝点被拉回真实位置）
         viewModelScope.launch {
             amap.locations.collect {
+                if (_mockState.value.valid) return@collect
                 _myLocation.value = it
                 // 罗盘不可用/未出数时，用 GPS 行进方向兜底（静止时不动）
                 if (!_compassActive && it.speed > 0.6f) {
                     _heading.value = ((it.bearing % 360f) + 360f) % 360f
+                }
+            }
+        }
+        // App 内模拟定位：开关与坐标持久化，启用时立即写入蓝点
+        viewModelScope.launch {
+            settings.mockState.collect { s ->
+                val wasOn = _mockState.value.valid
+                _mockState.value = s
+                if (s.valid) {
+                    _myLocation.value = mockFix(s)
+                } else if (wasOn) {
+                    _myLocation.value = null
+                    _messages.emit("已退出模拟定位，恢复真实 GPS")
                 }
             }
         }
@@ -432,6 +471,14 @@ class MapViewModel @Inject constructor(
     }
 
     fun locateOnce(onFix: (FixLocation) -> Unit = {}) {
+        // App 内模拟定位：直接给本 App 用，不启动真实 GPS，也不触发系统级定位
+        val mock = _mockState.value
+        if (mock.valid) {
+            val fix = mockFix(mock)
+            _myLocation.value = fix
+            onFix(fix)
+            return
+        }
         viewModelScope.launch {
             _busy.value = "正在定位…"
             val ok = withContext(Dispatchers.Main) { amap.start(intervalMs = 2000, highAccuracy = true, once = true) }
@@ -1328,7 +1375,12 @@ class MapViewModel @Inject constructor(
             settings.setShareEnabled(true)
             val user = settings.ensureUserId()
             LocationSharingService.start(context, room, user)
-            _messages.emit("已开启位置共享：房间 $room")
+            // 边界说明：共享服务直接读取真实 GPS，模拟定位不会被上报给同事
+            if (_mockState.value.valid) {
+                _messages.emit("已开启位置共享：房间 $room（共享仍使用真实 GPS，模拟定位不参与上报）")
+            } else {
+                _messages.emit("已开启位置共享：房间 $room")
+            }
         }
     }
 
@@ -1355,6 +1407,164 @@ class MapViewModel @Inject constructor(
             _messages.emit("已保存${o.type}标注：${o.name}")
         }
     }
+
+    // ------------------------------------------------------------------
+    // 1.2.0 · 自定义地图源（可指向任意自建地图服务器）
+    // ------------------------------------------------------------------
+    fun newCustomMapId(): String = customMapRepo.newId()
+
+    fun saveCustomMapSource(e: OnlineMapEntity, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            val err = com.kunming.powerline.ui.map.CustomMapSource.validate(e.tileUrl)
+            if (err != null) {
+                onDone("地址不合法：$err")
+                return@launch
+            }
+            customMapRepo.save(e)
+            onDone("已保存「${e.name}」，地图已刷新")
+        }
+    }
+
+    fun deleteCustomMapSource(id: String, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            customMapRepo.delete(id)
+            onDone("已删除该地图源")
+        }
+    }
+
+    fun toggleCustomMapSource(id: String, enabled: Boolean, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            customMapRepo.toggle(id, enabled)
+            onDone(if (enabled) "已启用该地图源" else "已停用该地图源")
+        }
+    }
+
+    /** id 为 null 表示取消自定义主底图，回到内置底图 */
+    fun setCustomMapBase(id: String?, onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            customMapRepo.setBase(id)
+            onDone(if (id == null) "已恢复内置底图" else "已设为主底图")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 1.2.0 · 自定义图层（用户手动新建空白图层）
+    // ------------------------------------------------------------------
+    fun createThematicLayer(
+        name: String,
+        geometryType: String,
+        color: Int,
+        remark: String?,
+        onDone: (Boolean, String) -> Unit
+    ) {
+        if (name.isBlank()) {
+            onDone(false, "图层名称不能为空")
+            return
+        }
+        viewModelScope.launch {
+            val layer = thematicRepo.createLayer(name, geometryType, color, remark)
+            _layerVersion.value = System.currentTimeMillis()
+            onDone(true, "已新建图层「${layer.name}」")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 1.2.0 · NAS 数据服务器（下载 / 上传 / 本地 JSON）
+    // ------------------------------------------------------------------
+    fun listDatasets(onDone: (Boolean, String, List<DatasetMetaDto>) -> Unit) {
+        viewModelScope.launch {
+            dataSync.listRemote().fold(
+                onSuccess = { list -> onDone(true, "共 ${list.size} 个数据集", list) },
+                onFailure = { e -> onDone(false, "读取失败：${e.message}", emptyList()) }
+            )
+        }
+    }
+
+    fun uploadDataset(name: String, kind: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在上传数据…"
+            val r = dataSync.upload(name, kind)
+            _busy.value = null
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "上传失败：${it.message}") }
+            )
+        }
+    }
+
+    fun downloadDataset(id: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在下载数据…"
+            val r = dataSync.download(id)
+            _busy.value = null
+            _layerVersion.value = System.currentTimeMillis()
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "下载失败：${it.message}") }
+            )
+        }
+    }
+
+    fun deleteDataset(id: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            dataSync.deleteRemote(id).fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "删除失败：${it.message}") }
+            )
+        }
+    }
+
+    fun exportDataset(uri: Uri, name: String, kind: String, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            dataSync.exportToUri(uri, name, kind).fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导出失败：${it.message}") }
+            )
+        }
+    }
+
+    fun importDataset(uri: Uri, onDone: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _busy.value = "正在导入数据…"
+            val r = dataSync.importFromUri(uri)
+            _busy.value = null
+            _layerVersion.value = System.currentTimeMillis()
+            r.fold(
+                onSuccess = { onDone(true, it) },
+                onFailure = { onDone(false, "导入失败：${it.message}") }
+            )
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 1.2.0 · App 内模拟定位（仅本 App 生效，不注入系统、无需 root）
+    // ------------------------------------------------------------------
+    fun setMockLocation(enabled: Boolean, lon: Double?, lat: Double?, onDone: (String) -> Unit) {
+        if (enabled) {
+            val lo = lon
+            val la = lat
+            if (lo == null || la == null || lo !in -180.0..180.0 || la !in -90.0..90.0) {
+                onDone("请填写有效经纬度：经度 -180~180，纬度 -90~90")
+                return
+            }
+        }
+        viewModelScope.launch {
+            settings.setMockState(SettingsStore.MockState(enabled, lon, lat))
+            onDone(if (enabled) "已开启模拟定位（仅本 App 生效）" else "已关闭模拟定位")
+        }
+    }
+
+    private fun mockFix(s: SettingsStore.MockState): FixLocation = FixLocation(
+        lon = s.lon ?: 0.0,
+        lat = s.lat ?: 0.0,
+        accuracy = s.accuracy,
+        speed = 0f,
+        bearing = 0f,
+        altitude = 0.0,
+        time = System.currentTimeMillis(),
+        address = "模拟定位（仅本 App）",
+        isWgs84 = true
+    )
 
     fun setBusy(msg: String?) {
         _busy.value = msg

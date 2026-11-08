@@ -249,19 +249,37 @@ data class TrackPointEntity(
 )
 
 /**
- * 在线地图（用户自定义底图源）
+ * 在线地图（用户自定义底图源 / 自定义地图服务器）
+ *
+ * 1.2.0 起可真正参与渲染：多个源可叠加，其中一个可设为「主底图」替代内置底图。
+ * 全部新增列均带 DEFAULT，v3→v4 用 ALTER TABLE 平滑升级，不影响已有数据。
  */
 @Entity(tableName = "online_map")
 data class OnlineMapEntity(
     @PrimaryKey val id: String,
     val name: String,
-    /** raster tiles 模板 URL */
+    /** raster tiles 模板 URL，必须含 {z} / {x} / {y}；可选 {s} 子域占位符 */
     val tileUrl: String,
     val minZoom: Int = 3,
     val maxZoom: Int = 18,
+    /** 逗号分隔的子域名，配合 URL 里的 {s} 使用，如 "a,b,c" */
     val subdomains: String = "",
-    val enabled: Boolean = true
-)
+    /** 是否启用（未启用的源不参与渲染） */
+    val enabled: Boolean = true,
+    /** 瓦片尺寸，通常 256；部分高清源为 512 */
+    @androidx.room.ColumnInfo(defaultValue = "256") val tileSize: Int = 256,
+    /** xyz（默认）或 tms（Y 轴翻转，{y} 会改写为 {-y}） */
+    val scheme: String? = null,
+    /** 叠加不透明度 0~1（作为主底图时固定为 1） */
+    @androidx.room.ColumnInfo(defaultValue = "1.0") val opacity: Float = 1f,
+    /** 是否替代内置底图作为主底图；最多一个为 true */
+    @androidx.room.ColumnInfo(defaultValue = "0") val asBase: Boolean = false,
+    /** 版权 / 数据来源说明 */
+    val attribution: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "0") val sortOrder: Int = 0
+) {
+    val isTms: Boolean get() = scheme.equals("tms", ignoreCase = true)
+}
 
 /**
  * 离线瓦片包（mbtiles 记录）

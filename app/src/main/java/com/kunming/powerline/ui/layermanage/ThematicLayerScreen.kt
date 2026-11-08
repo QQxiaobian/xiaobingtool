@@ -82,6 +82,12 @@ fun ThematicLayerScreen(
     var actionFeature by remember { mutableStateOf<ThematicFeatureEntity?>(null) }
     // 修改所属图层
     var movingFeature by remember { mutableStateOf<ThematicFeatureEntity?>(null) }
+    // 1.2.0：手动新建空白自定义图层
+    var creating by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var newType by remember { mutableStateOf("mixed") }
+    var newColorIndex by remember { mutableStateOf(0) }
+    var newRemark by remember { mutableStateOf("") }
 
     val polygonCount = layers.count { it.hasPolygon }
     val allLabelsOn = layers.isNotEmpty() && layers.all { it.labelVisible }
@@ -92,6 +98,15 @@ fun ThematicLayerScreen(
         subtitle = "共 ${layers.size} 个图层 / ${features.size} 个要素",
         onBack = onBack,
         actions = {
+            Text(
+                "新建",
+                fontSize = 13.sp,
+                color = PowerRed,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clickable { creating = true }
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
             Text(
                 "导入",
                 fontSize = 13.sp,
@@ -256,6 +271,126 @@ fun ThematicLayerScreen(
                     )
                 }
             }
+        }
+    }
+
+    // 1.2.0：新建自定义图层（空白图层，随后可导入要素 / 改归属 / 从服务器下载填充）
+    if (creating) {
+        LightPanelTheme {
+            AlertDialog(
+                onDismissRequest = { creating = false },
+                containerColor = PanelBg,
+                title = {
+                    Text(
+                        "新建自定义图层", fontSize = 15.sp,
+                        color = PanelText, fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            singleLine = true,
+                            label = { Text("图层名称", fontSize = 12.sp) },
+                            colors = panelFieldColors()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = newRemark,
+                            onValueChange = { newRemark = it },
+                            singleLine = true,
+                            label = { Text("备注（可选）", fontSize = 12.sp) },
+                            colors = panelFieldColors()
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text("几何类型", fontSize = 11.5.sp, color = PanelTextSub)
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                "point" to "点", "line" to "线",
+                                "polygon" to "面", "mixed" to "混合"
+                            ).forEach { (t, label) ->
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (newType == t) Color(0x1AB71C1C) else Color(0xFFF1EDE4)
+                                        )
+                                        .clickable { newType = t }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        label, fontSize = 11.sp,
+                                        color = if (newType == t) PowerRed else PanelTextSub
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text("图层颜色", fontSize = 11.5.sp, color = PanelTextSub)
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            com.kunming.powerline.data.repository.ThematicRepository.palette
+                                .forEachIndexed { i, c ->
+                                    Box(
+                                        Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (newColorIndex == i) Color(0xFFEFE7DA)
+                                                else Color.Transparent
+                                            )
+                                            .padding(4.dp)
+                                            .clickable { newColorIndex = i },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            Modifier.size(20.dp).clip(CircleShape)
+                                                .background(Color(c))
+                                        )
+                                    }
+                                }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "创建后可导入要素、修改要素所属图层，或从 NAS 下载数据填充；" +
+                                "在左侧图层面板里可单独控制是否显示。",
+                            fontSize = 10.5.sp, color = PanelTextSub, lineHeight = 16.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Text(
+                        "创建", fontSize = 14.sp, color = PowerRed,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable {
+                                vm.createThematicLayer(
+                                    newName, newType,
+                                    com.kunming.powerline.data.repository.ThematicRepository.palette[newColorIndex],
+                                    newRemark
+                                ) { ok, msg ->
+                                    onToast(msg)
+                                    if (ok) {
+                                        creating = false
+                                        newName = ""
+                                        newRemark = ""
+                                    }
+                                }
+                            }
+                            .padding(10.dp)
+                    )
+                },
+                dismissButton = {
+                    Text(
+                        "取消", fontSize = 14.sp, color = PanelTextSub,
+                        modifier = Modifier.clickable { creating = false }.padding(10.dp)
+                    )
+                }
+            )
         }
     }
 

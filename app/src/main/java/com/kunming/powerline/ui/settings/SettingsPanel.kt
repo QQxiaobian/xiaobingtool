@@ -75,6 +75,9 @@ fun SettingsPanel(
     onOpenHelp: () -> Unit,
     onOpenMapDataSettings: () -> Unit,
     onOpenServerSettings: () -> Unit,
+    onOpenCustomMapSources: () -> Unit,
+    onOpenDataSync: () -> Unit,
+    onOpenMockLocation: () -> Unit,
     onOpenGroupSettings: () -> Unit,
     onBack: () -> Unit,
     sectionResult: SectionLengthResult?,
@@ -200,6 +203,13 @@ fun SettingsPanel(
 
             SectionTitle("服务器（自建 NAS）")
             SettingRow("地图 / 线路台账 / 位置共享地址，可随时修改", "设置", onOpenServerSettings)
+
+            SectionTitle("自定义地图与数据")
+            SettingRow("自定义地图源 / 地图服务器，可叠加或设为主底图", "管理", onOpenCustomMapSources)
+            SettingRow("从 NAS 下载图层 / 线路数据，或上传本机数据", "同步", onOpenDataSync)
+
+            SectionTitle("演示与测试")
+            SettingRow("App 内模拟定位（仅本 App 生效，不影响其他应用）", "设置", onOpenMockLocation)
 
             SectionTitle("基础地图数据设置")
             SettingRow("在线地图管理 / 自定义 Style / 导入离线 mbtiles", "›", onOpenMapDataSettings)

@@ -6,7 +6,7 @@
 台账校验、线路导入与后台位置共享。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.1.1（versionCode 21）
+- **当前版本**：1.2.0（versionCode 22）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -31,6 +31,10 @@
 | 图层导入 | 收藏点/起飞点/危险点/交叉跨越/视频监控/护线员/电缆 7 个图层全部支持 KML/KMZ/GeoJSON/SHP 导入与逐条编辑；影像图层支持从相册批量导入并按 EXIF GPS 定位 |
 | 文件解析 | 自写 KML/KMZ/GPX/GeoJSON 解析器；SHP（含 DBF 属性表、GBK 解码、Gauss-Krüger/WebMercator 反算）；KMZ/SHP 支持 zip 打包上传；解析 KML `ExtendedData`/`SimpleData` 扩展属性作为区域名称与备注 |
 | 原生能力 | 后台定位前台服务 + WorkManager 看护复活、开机自启、离线瓦片包（mbtiles / 区域预下载）、相机拍照写 Exif GPS、方位角传感器真北 |
+| 自定义地图源（1.2.0） | 可添加任意 XYZ / TMS 瓦片服务（含自建 NAS 地图服务器），支持 `{s}` 多子域、256/512 瓦片、TMS 方案、缩放范围与不透明度；启用即叠加显示，其中一个可设为「主底图」替代内置底图，也可一键恢复内置 |
+| 自定义图层（1.2.0） | 可手动新建空白图层（名称 / 几何类型 / 颜色 / 备注）；左侧图层面板列出全部自定义图层并**逐个控制是否显示**；图层可导入要素、改归属、转线路，或用服务器数据填充 |
+| 数据同步（1.2.0） | NAS / 服务器 / 本地 JSON 三路：上传本机图层与线路数据、浏览并下载服务器数据集、删除远端数据集；导出 / 导入同一份 `powerline-dataset/1` JSON 便于离线流转；按图层 id、线路名、杆塔号 UPSERT 合并 |
+| App 内模拟定位（1.2.0） | 仅本 App 内生效的演示 / 测试定位（无 GPS 信号时手动补录点位）；**不注入系统位置、不影响其他应用、不需要 root**；顶部显示「模拟定位」标记，位置共享与巡检轨迹仍使用真实 GPS |
 
 ---
 
@@ -40,8 +44,8 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 99 项全部通过 |
-| 签名校验 `apksigner verify` | ✅ 通过（v1/v2/v3） |
+| `:app:testDebugUnitTest` | ✅ 120 项全部通过 |
+| 签名校验 `apksigner verify` | ✅ 通过（v2 / v3；minSdk 26 起系统原生支持 v2 签名） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
 
@@ -54,6 +58,10 @@
 - `ShpThematicParseTest`：大端文件头、记录长度、DBF 32 字节字段描述区、点/线/面/MultiPoint 与 Z/M 坐标
 - `ThematicLabelTest` / `ThematicAreaLabelTest` / `ThematicNameTest`：标注文案组装、质心点要素生成、备注仅在单要素图层补位、无名图层兜底
 - `HeadingIconTest`：指北针图标按方位角旋转的角度映射
+- `ServerAddressTest`（1.1.1）：主地址归一化、三件套推导、https→wss
+- `CustomMapSourceTest`（1.2.0）：XYZ 模板校验、`{s}` 子域展开、TMS 方案、JSON 转义、自定义主底图与叠加层的 style 生成
+- `DatasetModelTest`（1.2.0）：数据集统计 / 类型推断 / 名称校验 / 元数据 / Moshi 序列化往返
+- `MockLocationTest`（1.2.0）：App 内模拟定位的启用条件、坐标范围与默认精度
 
 ---
 
@@ -215,44 +223,55 @@ app/src/main/java/com/kunming/powerline/
 ├── MainActivity.kt                 单 Activity 入口 + 权限申请
 ├── PowerLineApp.kt                 @HiltAndroidApp，MapLibre 初始化
 ├── data/
-│   ├── local/                      Room：18 张表 / 10 个 DAO（v3）
-│   │   ├── entity/Entities.kt      业务实体（线路/杆塔/点位/影像等）
+│   ├── local/                      Room：18 张表 / 10 个 DAO（v4）
+│   │   ├── entity/Entities.kt      业务实体（线路/杆塔/点位/影像；1.2.0 扩展 online_map 自定义地图源）
 │   │   ├── entity/ThematicEntities.kt  专题图层、专题要素
-│   │   ├── dao/Daos.kt             业务 DAO
+│   │   ├── dao/Daos.kt             业务 DAO（含 online_map 增删查改 / 设主底图）
 │   │   ├── dao/ThematicDao.kt      专题 DAO（批量透明度/名称开关/移动要素）
-│   │   └── AppDatabase.kt          含 MIGRATION_2_3
-│   ├── repository/                 LineRepository（含校验/几何重建）、PointRepository、BatchRepository、ThematicRepository
-│   ├── prefs/SettingsStore.kt      DataStore 偏好（含名称显示起始缩放级）
+│   │   └── AppDatabase.kt          含 MIGRATION_1_2 / 2_3 / 3_4
+│   ├── repository/                 LineRepository、PointRepository、BatchRepository、ThematicRepository、
+│   │                               CustomMapSourceRepository（自定义地图源）、DataSyncRepository（NAS 数据同步）
+│   ├── prefs/                      SettingsStore（DataStore，含 App 内模拟定位状态）、ServerConfig、ServerAddresses
 │   ├── location/                   高德定位封装（GCJ02→WGS84）、位置共享 WebSocket
 │   ├── offline/                    mbtiles 导入、区域瓦片预下载
 │   ├── parser/                     Excel / KML / KMZ / GPX / GeoJSON / SHP 解析、模板生成
 │   │   ├── ThematicParser.kt       KML/GeoJSON 专题解析（含 ExtendedData/SimpleData）
 │   │   ├── ShapefileThematicReader.kt  SHP+DBF 二进制解析与坐标系反算
 │   │   └── GeoFileParser.kt        导入入口（含 zip 解包与格式嗅探）
-│   ├── remote/                     PMS Retrofit 接口与 DTO
+│   ├── remote/                     PmsApi（含 api/datasets）、PmsRepository、
+│   │                               PmsModels.kt / DatasetModels.kt（powerline-dataset/1）
 │   └── sensor/CompassSensor.kt     方位角 + 磁偏角（真北）
 ├── service/                        位置共享前台服务、WorkManager 看护、开机自启
-├── di/AppModule.kt                 Hilt 提供 Database / DAO / OkHttp / Retrofit
+├── di/                             AppModule（Database / DAO / OkHttp / Retrofit）、ServerUrlInterceptor
 ├── ui/
 │   ├── MapScreen.kt                主地图页
-│   ├── MapViewModel.kt             全部状态与业务动作（导入/转线路/编辑）
-│   ├── map/                        MapController、LayerRenderer、底图与图标
+│   ├── MapViewModel.kt             全部状态与业务动作（导入/转线路/编辑/同步/模拟定位）
+│   ├── map/                        MapController、LayerRenderer、Basemap、CustomMapSource、底图与图标
 │   │   ├── ThematicLabels.kt       专题标注文案组装与兜底规则
 │   │   ├── ThematicInfoDialog.kt   要素信息卡（KML 备注/扩展属性）
 │   │   └── ThematicLineConverter.kt 专题线 → 线路（顶点映射杆塔号）
-│   ├── layer/                      图层枚举、图层面板、电压图例
+│   ├── layer/                      图层枚举、图层面板（含自定义图层逐层开关）、电压图例
 │   ├── search/                     搜索栏与帮助弹窗
 │   ├── draw/                       绘制工具栏与状态机
 │   ├── importui/                   创建/导入线路全流程
 │   ├── layermanage/                各图层管理页
 │   │   ├── LayerImportEdit.kt      通用导入条与编辑弹窗（7 个业务图层复用）
-│   │   ├── ThematicLayerScreen.kt  专题图层管理（名称/透明度/线宽/批量/转线路）
+│   │   ├── ThematicLayerScreen.kt  专题图层管理（1.2.0 可新建空白图层 / 名称/透明度/线宽/批量/转线路）
 │   │   └── LineEditScreen.kt       线路编辑
-│   ├── settings/                   设置面板、地图数据设置
+│   ├── settings/                   设置面板、服务器地址、地图数据设置
+│   │   ├── CustomMapSourceScreen.kt  1.2.0 自定义地图源管理
+│   │   ├── DataSyncScreen.kt         1.2.0 NAS 数据同步（上传/下载/本地 JSON）
+│   │   └── MockLocationScreen.kt     1.2.0 App 内模拟定位（明确非系统级）
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
 ├── domain/                         领域模型
 └── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif
+
+nas-server/                         NAS 自建服务（Docker Compose，8080 单端口）
+├── pms/app.py                      Flask：台账 REST / 数据集 API / 位置共享 WS / XYZ 瓦片
+├── tools/dataset_cli.py            1.2.0 数据集命令行管理（list/upload/download/delete）
+├── nginx/default.conf              可选 8090 瓦片静态服务
+└── README.md                       部署与验收说明
 ```
 
 ---
@@ -335,16 +354,64 @@ Android 12+ 后台定位需用户选择「始终允许」，未授权时 App 会
 
 ### 7.8 数据库迁移
 
-`AppDatabase` 当前 `version = 3`。`MIGRATION_2_3` 为 `thematic_layer` 增加三个字段：
+`AppDatabase` 当前 `version = 4`，全部迁移都是 `ALTER TABLE ... ADD COLUMN` + 默认值，
+升级时旧库直接补默认值，**不需要清库或重导数据**。
 
-| 字段 | 类型 | 默认值 | 用途 |
-|---|---|---|---|
-| `labelVisible` | INTEGER | 1 | 是否显示该图层名称 |
-| `fillOpacity` | REAL | 0.22 | 面填充透明度 |
-| `lineWidth` | REAL | 2.2 | 线宽（dp） |
+| 迁移 | 表 | 新增字段 |
+|---|---|---|
+| `MIGRATION_1_2` | — | 新建 `thematic_layer` / `thematic_feature` 两张表 |
+| `MIGRATION_2_3` | `thematic_layer` | `labelVisible`(INTEGER 1)、`fillOpacity`(REAL 0.22)、`lineWidth`(REAL 2.2) |
+| `MIGRATION_3_4` | `online_map` | `tileSize`(256)、`scheme`(可空=xyz)、`opacity`(1.0)、`asBase`(0)、`attribution`、`sortOrder`(0) |
 
-均为 `NOT NULL DEFAULT`，升级时旧库直接补默认值，**不需要清库或重导数据**。
-但 v1.0.15 之前入库的专题要素若名称为空，仍需重新导入才能显示标注（见 7.6）。
+> v1.0.15 之前入库的专题要素若名称为空，仍需重新导入才能显示标注（见 7.6）。
+
+### 7.9 自定义地图源 / 自定义地图服务器
+
+入口：**设置 → 自定义地图与数据 → 自定义地图源**。
+
+- 模板必须含 `{z}/{x}/{y}`，可选 `{s}` 子域占位符（配合 `a,b,c` 展开成多 URL 轮询）；
+  支持 `http(s)://` 与 `file://`，可设 256/512 瓦片、TMS 方案、缩放范围、叠加不透明度。
+- 模板合法性在保存前用 `CustomMapSource.validate()` 校验，进 style JSON 前统一转义，避免注入破坏样式。
+- 启用的源作为半透明叠加层渲染；`asBase=true` 的源（最多一个，由 `setBase()` 互斥保证）
+  **替代**内置底图成为主底图。增删 / 启停 / 切换主底图都会重建 style 并保留相机位置。
+- 与「服务器地址」设置的区别：服务器地址只替换内置「服务器版」底图的主机与端口；
+  自定义地图源是完整自定义的瓦片模板，可指向任意第三方或自建地图服务器。
+
+### 7.10 自定义图层与逐层显示
+
+- **专题图层管理 → 新建**：创建空白自定义图层（名称、点/线/面/混合、颜色、备注），
+  之后可导入要素、修改要素所属图层、转线路，或用服务器数据填充。
+- 左侧「图层」面板在 11 个固定业务开关之外，额外列出全部自定义图层，
+  每个独立开关控制 `thematic_layer.visible`；`LayerRenderer` 按 `visible` 过滤要素，
+  关闭某层不影响其它层，也不影响名称 / 透明度等设置。
+
+### 7.11 数据同步（NAS / 服务器 / 本地 JSON）
+
+统一格式 `powerline-dataset/1`（`DatasetBundleDto`）：`layers[]`（含 `features[]`）+ `ledger`（线路 / 杆塔）。
+App 端由 `DataSyncRepository` 负责组装、上传、下载合并与本地文件读写。
+
+| 动作 | App 入口 | 服务端 |
+|---|---|---|
+| 上传本机数据 | 数据同步 → 上传到服务器 | `POST /api/datasets` |
+| 列出 / 下载 / 删除 | 数据同步 → 服务器上的数据集 | `GET /api/datasets`、`GET /api/datasets/{id}`、`DELETE` |
+| 本地导出 / 导入 | 数据同步 → 导出 / 导入本地 JSON | 不联网，与服务端格式完全一致 |
+
+- 下载 / 导入按图层 id、线路名、杆塔号 UPSERT：同 id 图层先清旧要素再写入，
+  重复操作不会产生重复数据；同名图层以服务器版本为准（会覆盖本地显示开关）。
+- 上传 / 下载都走运行时 `PMS_BASE_URL`（`ServerUrlInterceptor` 动态改写），
+  改 NAS 地址后无需重新打包；开启 `API_TOKEN` 时由 NAS 侧统一鉴权。
+- NAS 端部署见 [`nas-server/README.md`](nas-server/README.md) 的「数据集服务」章节，
+  也可使用 `nas-server/tools/dataset_cli.py` 在电脑端批量管理。
+
+### 7.12 关于「虚拟定位」的实现边界
+
+v1.2.0 提供的是 **App 内自用的模拟定位**（设置 → 演示与测试 → 模拟定位）：
+用于演示、离线测试、无 GPS 信号时手动补录点位，只替换本 App 的蓝点与「当前位置」取值。
+
+明确**不提供**：root 权限的系统级虚拟定位、向系统 `LocationProvider` 注入位置、
+让微信 / 导航 / 考勤 / 游戏等第三方应用读到伪造位置。理由：这类能力会欺骗第三方系统，
+且巡检业务本身依赖真实、可审计的位置记录。位置共享与巡检轨迹始终读取真实 GPS，
+模拟坐标不会被上报；开启时主界面顶部常驻「模拟定位」标记。
 
 ---
 
@@ -388,6 +455,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.2.0 | 2026-11 | 自定义地图源 / 地图服务器（可叠加、可设主底图）、自定义图层新建与逐层显示开关、NAS 数据同步（上传 / 下载 / 本地 JSON）、App 内模拟定位（仅本 App 生效，不提供系统级 root 虚拟定位）、Room v4 迁移 |
 | 1.1.1 | 2026-11 | 服务器地址改为运行时可配置（设置页填 NAS 主地址 → 测试连接 → 自动填充三地址）、PMS 请求动态改写、瓦片/WS 地址即时生效并自动重建底图；新增 NAS 自建服务部署工程 `nas-server/`（Docker Compose + 台账 API + 位置共享 + 瓦片服务） |
 | 1.1.0 | 2026-11 | 区域名称 3 级起直接显示（边界线也纳入）、业务点位名称统一收进 12 级起的独立层、主界面按钮/搜索栏/提示条改浅米色、杆塔图标低缩放跳过绘制 |
 | 1.0.18 | 2026-11 | 取消自动跟随与常驻经纬度/精度状态条：打开 App 不再抢镜头，定位按钮改为单次居中，拖动地图不再弹「已退出跟随」 |

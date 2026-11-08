@@ -54,7 +54,7 @@ import com.kunming.powerline.data.local.entity.TrackPointEntity
         ThematicLayerEntity::class,
         ThematicFeatureEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -131,6 +131,23 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE `thematic_layer` ADD COLUMN `lineWidth` REAL NOT NULL DEFAULT 2.2"
                 )
+            }
+        }
+
+        /**
+         * v3 → v4：自定义地图源（online_map）扩展为可真正参与渲染的地图服务器配置。
+         *
+         * 全部新列带 DEFAULT（可空列无默认值），老版本升级后自动取：
+         * 256px 瓦片 / XYZ 方案 / 不透明 / 不作为主底图 / 无版权 / 排序 0。
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `tileSize` INTEGER NOT NULL DEFAULT 256")
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `scheme` TEXT")
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `opacity` REAL NOT NULL DEFAULT 1.0")
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `asBase` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `attribution` TEXT")
+                db.execSQL("ALTER TABLE `online_map` ADD COLUMN `sortOrder` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

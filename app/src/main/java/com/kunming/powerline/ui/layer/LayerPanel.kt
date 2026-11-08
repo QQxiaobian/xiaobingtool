@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kunming.powerline.data.local.entity.ThematicLayerEntity
 import com.kunming.powerline.ui.theme.PanelBg
 import com.kunming.powerline.ui.theme.PanelLine
 import com.kunming.powerline.ui.theme.PanelText
@@ -39,12 +40,17 @@ import com.kunming.powerline.util.VoltagePaletteUi
 
 /**
  * 图层面板（左侧齿轮弹出）
+ *
+ * 1.2.0 起除了固定的业务图层开关，还列出全部「自定义图层」（专题图层），
+ * 每一个都能单独控制显示 / 隐藏，互不干扰。
  */
 @Composable
 fun LayerPanel(
     visible: Boolean,
     layerState: Map<String, Boolean>,
+    thematicLayers: List<ThematicLayerEntity> = emptyList(),
     onToggle: (MapLayer) -> Unit,
+    onToggleThematic: (String, Boolean) -> Unit = { _, _ -> },
     onManage: (MapLayer) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -75,7 +81,7 @@ fun LayerPanel(
                     }
                 }
                 Text(
-                    "开启后在地图上显示对应专题要素",
+                    "开启后在地图上显示对应专题要素；自定义图层可逐个控制",
                     color = PanelTextSub, fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
@@ -126,10 +132,64 @@ fun LayerPanel(
                             modifier = Modifier.padding(start = 16.dp)
                         )
                     }
+
+                    // ---------------- 自定义图层：逐层显示开关 ----------------
+                    if (thematicLayers.isNotEmpty()) {
+                        item {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                Text(
+                                    "自定义图层（${thematicLayers.size}）",
+                                    color = PowerRed, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "每个图层单独控制是否显示，关闭后只隐藏该图层要素",
+                                    color = PanelTextSub, fontSize = 10.sp
+                                )
+                            }
+                            Divider(color = PanelLine, thickness = 0.8.dp)
+                        }
+                        items(thematicLayers, key = { it.id }) { l ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onToggleThematic(l.id, !l.visible) }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(14.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(l.color))
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(l.name, color = PanelText, fontSize = 12.5.sp, maxLines = 1)
+                                    Text(
+                                        "${l.featureCount} 个要素 · ${geometryLabel(l.geometryType)}",
+                                        color = PanelTextSub, fontSize = 10.sp
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                RedSwitch(checked = l.visible) { onToggleThematic(l.id, it) }
+                            }
+                            Divider(
+                                color = PanelLine, thickness = 0.6.dp,
+                                modifier = Modifier.padding(start = 16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun geometryLabel(t: String): String = when (t) {
+    "point" -> "点"
+    "line" -> "线"
+    "polygon" -> "面"
+    else -> "混合"
 }
 
 /**
