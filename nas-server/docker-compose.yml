@@ -11,6 +11,8 @@
 #   8090  纯静态瓦片（nginx，性能更好，推荐 App 用这个）
 services:
   pms:
+    # 离线部署用：导入成品镜像后执行 docker compose up -d --no-build 即可运行
+    image: powerline-pms:local
     build:
       context: ./pms
       args:

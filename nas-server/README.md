@@ -176,13 +176,15 @@ scp -r offline-images/ user@NAS:/path/to/nas-server/
 
 # NAS 上
 bash tools/prepare-images.sh import
-DOCKER_BUILDKIT=0 docker compose up -d --build
+docker compose up -d --no-build
 ```
 
-`DOCKER_BUILDKIT=0` 是为了让旧版 builder 优先用本地镜像、不去 HEAD manifest；
-若导入后仍尝试联网，用 `docker pull <加速源>/library/python:3.11-slim` +
-`docker tag <...> python:3.11-slim` 手工打标签（`nginx` 同理）再构建。
-脚本的加速源可用 `REGISTRY_PREFIX=docker.1panel.live` 覆盖。
+脚本在联网机器上会先 `docker build` 出**成品镜像**（`pip` 依赖已装进镜像），
+NAS 端导入后用 `--no-build` 直接跑本地镜像，全程不访问任何仓库、也不需要 pip 联网，
+适合 NAS 完全没有外网的场景。`pms` 服务在 compose 里固定使用 `powerline-pms:local`
+标签，`tiles` 使用 `nginx:1.27-alpine`，导入脚本会自动打好这两个标签。
+脚本的加速源可用 `REGISTRY_PREFIX=docker.1panel.live` 覆盖；以后要重新构建再执行
+`docker compose up -d --build`（那一步需要外网）。
 
 **④ 不用 Docker（最终兜底）**
 

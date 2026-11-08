@@ -44,7 +44,7 @@ if ! $DC up -d --build; then
   echo "   任选其一处理：" >&2
   echo "     1) 飞牛 Docker 面板 → 镜像仓库 → 仓库设置，换成 https://docker.1ms.run 并重启 Docker 服务" >&2
   echo "     2) 在 .env 里设 BASE_IMAGE / TILES_IMAGE 指向可用加速源（见 .env.example）" >&2
-  echo "     3) bash tools/prepare-images.sh import  离线导入镜像后重跑" >&2
+  echo "     3) bash tools/prepare-images.sh import  离线导入成品镜像后用 --no-build 启动" >&2
   echo "     4) bash tools/run-local.sh             完全不用 Docker" >&2
   echo "   详见 README「镜像拉取失败」一节。" >&2
   exit 1
