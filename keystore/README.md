@@ -11,10 +11,13 @@
 | 密钥库口令 | `powerline2024` |
 | 密钥口令 | `powerline2024` |
 | 有效期 | 30 年（10950 天） |
-| 主题 | `CN=Kunming PowerLine Inspection, O=Kunming Power Supply, C=CN` |
+| 主题 | 见 `keytool -list -v` 输出（发布证书已签发，为保证覆盖升级不可更换） |
 
 > 该密钥仅用于调试与演示分发。**正式上线前请替换为单位自有密钥**，
 > 否则后续升级包会因签名不一致无法覆盖安装。
+
+> 注意：已发布 APK 的证书主题是历史生成的，属既有签名身份，
+> 不在 App 界面或文档中展示任何单位名称；重新生成证书会导致无法覆盖安装。
 
 ## 生成正式密钥
 
@@ -23,7 +26,7 @@ keytool -genkeypair -v \
   -keystore keystore/powerline-release.jks \
   -alias powerline \
   -keyalg RSA -keysize 2048 -validity 10950 \
-  -dname "CN=输电管理所, OU=运维, O=昆明供电局, L=昆明, ST=云南, C=CN"
+  -dname "CN=输电线路工具箱, OU=运维, O=输电运维, C=CN"
 ```
 
 ## 查看 SHA1（高德 Key 绑定用）

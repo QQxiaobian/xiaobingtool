@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-输电线路智能巡检 · NAS 内网服务端
+输电线路工具箱 · NAS 内网服务端
 ================================================
 单进程同时提供两类能力，单端口（默认 8902/8080）：
 
@@ -78,11 +78,11 @@ CREATE INDEX IF NOT EXISTS idx_datasets_updated ON datasets(updated_at);
 
 DEMO_LINES = [
     ("L001", "220kV 昆钢 I 回线", "220kV", "500kV 昆明变", "220kV 安宁变",
-     "2012-06-01", "昆明输电管理所", 42.6, "示例数据 · 可用 tools/import_excel.py 覆盖"),
+     "2012-06-01", "运维一班", 42.6, "示例数据 · 可用 tools/import_excel.py 覆盖"),
     ("L002", "110kV 昆呈线", "110kV", "110kV 螺蛳湾变", "110kV 呈贡变",
-     "2016-09-15", "昆明输电管理所", 18.3, "示例数据"),
+     "2016-09-15", "运维一班", 18.3, "示例数据"),
     ("L003", "500kV 昆曲 I 回线", "500kV", "500kV 昆明北变", "500kV 曲靖变",
-     "2009-03-20", "昆明输电管理所", 96.8, "示例数据"),
+     "2009-03-20", "运维一班", 96.8, "示例数据"),
 ]
 
 DEMO_TOWERS = [
@@ -120,7 +120,7 @@ def init_db():
             )
             c.executemany(
                 "INSERT OR IGNORE INTO units VALUES(?)",
-                [("昆明输电管理所",), ("曲靖输电管理所",)],
+                [("运维一班",), ("运维二班",)],
             )
             print("[init] 已写入示例台账：3 条线路 / 7 基杆塔")
 
@@ -191,7 +191,7 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.5",
+        "version": "1.6",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,
@@ -203,7 +203,7 @@ def health():
         "urls": urls,
         "hint": "App 只需填 pmsBase 一个地址；1.2.0 起可上传/下载图层与线路数据集，"
                 "1.3.0 起可直接把 KML/KMZ/GeoJSON/GPX/SHP 放进 files 目录并在「服务器文件」里加载；"
-                "1.5.0 起位置共享 WS 已移除",
+                "1.5.0 起位置共享 WS 已移除；1.6.0 起 App 名称为「输电线路工具箱」",
         "endpoints": ["/api/lines", "/api/towers", "/api/units",
                       "/api/import/pms-ledger", "/api/datasets (GET/POST)",
                       "/api/datasets/{id} (GET/DELETE)", "/api/datasets/{id}/download",

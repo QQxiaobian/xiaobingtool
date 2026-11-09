@@ -503,15 +503,6 @@ class MapController {
                 PropertyFactory.lineOpacity(0.85f)
             )
         )
-        // 导航直线 / 测距
-        st.addSource(geoSource(LayerIds.SRC_ROUTE, empty))
-        st.addLayer(
-            LineLayer(LayerIds.LYR_ROUTE, LayerIds.SRC_ROUTE).withProperties(
-                PropertyFactory.lineColor("#00E5FF"),
-                PropertyFactory.lineWidth(3f),
-                PropertyFactory.lineDasharray(arrayOf(1.5f, 1.2f))
-            )
-        )
         // 搜索结果高亮
         st.addSource(geoSource(LayerIds.SRC_SEARCH, empty))
         st.addLayer(
@@ -637,11 +628,14 @@ class MapController {
      *   行政区划一打开地图就能看到名字；
      * - 业务点位名称（LYR_POINT_LABEL）固定 [POINT_LABEL_MIN_ZOOM]，低缩放只画图标；
      * - 线路名 / 专题点名 / 杆塔号仍跟随用户设定阈值，杆塔号再抬高
-     *   [TOWER_LABEL_ZOOM_OFFSET] 级。
+     *   [TOWER_LABEL_ZOOM_OFFSET] 级；
+     * - 杆塔点图标同样跟随该阈值：低于设定等级时只画线路、不画杆塔点，
+     *   避免缩小地图后满屏杆塔点（1.6.0）。
      */
     fun applyLabelZoom(baseZoom: Float) {
         val st = style ?: return
         val z = baseZoom.coerceIn(MIN_LABEL_ZOOM, MAX_LABEL_ZOOM)
+        st.getLayer(LayerIds.LYR_TOWER)?.setMinZoom(z)
         st.getLayer(LayerIds.LYR_LINE_LABEL_POINT)?.setMinZoom(z)
         st.getLayer(LayerIds.LYR_LINE_LABEL)?.setMinZoom((z + 2f).coerceAtMost(MAX_LABEL_ZOOM))
         val areaZ = (z - 1f).coerceAtLeast(MIN_LABEL_ZOOM)

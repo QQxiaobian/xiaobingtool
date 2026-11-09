@@ -23,6 +23,7 @@ import com.kunming.powerline.data.local.entity.CableEntity
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.ui.layer.LayerIds
 import com.kunming.powerline.ui.layer.MapLayer
+import com.kunming.powerline.util.TowerVisibility
 import com.kunming.powerline.util.VoltagePalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -146,7 +147,9 @@ object LayerRenderer {
             }
         }
         // ---- 杆塔（含同塔多回视觉偏移）----
-        val towerFeatures = buildTowerFeatures(towers, lines, textSize, selectedTowerId)
+        // 与线路共用电压等级筛选：关闭的等级不再残留杆塔点，仅保留可见等级的线路
+        val visibleTowers = TowerVisibility.filter(towers, lines, voltageFilter)
+        val towerFeatures = buildTowerFeatures(visibleTowers, lines, textSize, selectedTowerId)
 
         // ---- 收藏点 ----
         val favFeatures = favorites.map { f ->

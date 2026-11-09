@@ -17,14 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kunming.powerline.data.local.entity.TowerEntity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.camera.CameraUpdateFactory
-import org.maplibre.android.geometry.LatLng
 
 /**
  * 小尺寸圆形图标按钮（顶部工具区）
@@ -63,42 +55,6 @@ fun SmallButton(text: String, onClick: () -> Unit) {
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(text, color = Color.White, fontSize = 11.5.sp)
-    }
-}
-
-/**
- * 沿线路杆塔坐标序列做 CameraPosition 动画漫游
- */
-fun startLineTour(
-    scope: CoroutineScope,
-    controller: MapController,
-    lineId: String?,
-    allTowers: List<TowerEntity>,
-    onFinish: () -> Unit
-) {
-    val towers = allTowers
-        .filter { lineId == null || it.lineId == lineId }
-        .sortedBy { it.seq }
-    if (towers.size < 2) {
-        onFinish()
-        return
-    }
-    scope.launch {
-        var lastJob: Job? = null
-        towers.forEach { t ->
-            lastJob?.cancel()
-            val map = controller.map ?: return@launch
-            val pos = CameraPosition.Builder()
-                .target(LatLng(t.lat, t.lon))
-                .zoom(15.5)
-                .bearing(map.cameraPosition?.bearing ?: 0.0)
-                .tilt(30.0)
-                .build()
-            map.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 1400)
-            delay(1600)
-        }
-        delay(400)
-        onFinish()
     }
 }
 

@@ -149,7 +149,7 @@ fun ImportHomeScreen(onBack: () -> Unit, onPick: (String) -> Unit) {
             ImportMenuRow("创建线路", "创建空线路，稍后在其中添加数据") { onPick("create") }
             ImportMenuRow("杆塔显示优化", "优化同塔多回线路杆塔的显示效果") { onPick("towerDisplay") }
             ImportMenuRow("从表格文件导入", "所选表格格式需与导入模板一致（.xlsx / .xls / .csv）") { onPick("excel") }
-            ImportMenuRow("从输电管理所设备台帐导入", "从输电管理所输电线路设备台帐导入线路信息") { onPick("pms") }
+            ImportMenuRow("从 PMS 设备台账导入", "从内网 PMS 线路设备台账导入线路信息") { onPick("pms") }
             ImportMenuRow("从地理信息文件导入（KML 等多格式）", "可导入为线路，也可导入为专题图层（点/线/面）") { onPick("geo") }
             ImportMenuRow("删除全部线路", "清空线路与关联杆塔数据（需二次确认）") { onPick("delete") }
             ImportMenuRow("导入记录与撤销", "查看最近导入批次，5 分钟内可撤销") { onPick("batches") }

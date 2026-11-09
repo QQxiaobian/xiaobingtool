@@ -39,6 +39,8 @@ import com.kunming.powerline.data.repository.ValidationIssue
 import com.kunming.powerline.ui.layer.MapLayer
 import com.kunming.powerline.ui.map.BasemapType
 import com.kunming.powerline.util.GeoUtils
+import com.kunming.powerline.util.MapPointKind
+import com.kunming.powerline.util.MapPointTypes
 import com.kunming.powerline.util.VoltagePalette
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -152,9 +154,6 @@ class MapViewModel @Inject constructor(
 
     private val _myLocation = MutableStateFlow<FixLocation?>(null)
     val myLocation: StateFlow<FixLocation?> = _myLocation.asStateFlow()
-
-    private val _routeLine = MutableStateFlow<List<Pair<Double, Double>>>(emptyList())
-    val routeLine: StateFlow<List<Pair<Double, Double>>> = _routeLine.asStateFlow()
 
     private val _statusBar = MutableStateFlow("")
     val statusBar: StateFlow<String> = _statusBar.asStateFlow()
@@ -643,6 +642,71 @@ class MapViewModel @Inject constructor(
 
     fun clearSelectedTower() {
         _selectedTower.value = null
+    }
+
+    // ------------------------------------------------------------------
+    // 点击地图坐标 -> 保存为业务点位（1.6.0）
+    // ------------------------------------------------------------------
+    /**
+     * 把地图上的点击 / 长按坐标写入指定点位图层。
+     * 数据库写入统一走 IO 线程，成功后刷新图层版本，图标即时出现在地图上。
+     */
+    fun addPointAt(kind: MapPointKind, name: String, extra: String, lon: Double, lat: Double) {
+        val finalName = MapPointTypes.normalizeName(kind, name)
+        val ext = MapPointTypes.cleanExtra(extra)
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                when (kind) {
+                    MapPointKind.DANGER -> db.pointDao().upsertDanger(
+                        DangerPointEntity(
+                            id = LineRepository.newId("D"), type = finalName,
+                            level = MapPointTypes.normalizeLevel(ext),
+                            lon = lon, lat = lat
+                        )
+                    )
+                    MapPointKind.GUARDIAN -> db.pointDao().upsertGuardian(
+                        GuardianEntity(
+                            id = LineRepository.newId("G"), name = finalName,
+                            phone = ext.takeIf { it.isNotBlank() },
+                            lastLon = lon, lastLat = lat,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    MapPointKind.FAVORITE -> db.pointDao().upsertFavorite(
+                        FavoriteEntity(
+                            id = LineRepository.newId("F"), name = finalName,
+                            category = "地图标注", lon = lon, lat = lat,
+                            note = ext.takeIf { it.isNotBlank() }
+                        )
+                    )
+                    MapPointKind.CAMERA -> db.pointDao().upsertCamera(
+                        CameraEntity(
+                            id = LineRepository.newId("V"), name = finalName,
+                            rtspUrl = ext, lon = lon, lat = lat
+                        )
+                    )
+                    MapPointKind.TAKEOFF -> db.pointDao().upsertTakeoff(
+                        TakeoffPointEntity(
+                            id = LineRepository.newId("P"), name = finalName,
+                            lon = lon, lat = lat,
+                            altitude = MapPointTypes.parseAltitude(ext)
+                        )
+                    )
+                    MapPointKind.CROSSING -> db.pointDao().upsertCrossing(
+                        CrossingEntity(
+                            id = LineRepository.newId("X"),
+                            crossType = ext.ifBlank { "其他" },
+                            crossObject = finalName, lon = lon, lat = lat
+                        )
+                    )
+                }
+            }.onSuccess {
+                _layerVersion.value = System.currentTimeMillis()
+                _messages.emit(MapPointTypes.savedMessage(kind, finalName))
+            }.onFailure {
+                _messages.emit("保存失败：${it.message}")
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1688,11 +1752,6 @@ class MapViewModel @Inject constructor(
 
     fun postMessage(msg: String) {
         viewModelScope.launch { _messages.emit(msg) }
-    }
-
-    fun setRoute(from: Pair<Double, Double>?, to: Pair<Double, Double>?) {
-        if (from == null || to == null) _routeLine.value = emptyList()
-        else _routeLine.value = listOf(from, to)
     }
 
     fun towerPoints(lineId: String): List<Point> =

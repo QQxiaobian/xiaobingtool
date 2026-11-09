@@ -50,7 +50,6 @@ import com.kunming.powerline.data.repository.SectionLengthResult
 import com.kunming.powerline.ui.draw.DrawState
 import com.kunming.powerline.ui.draw.DrawTool
 import com.kunming.powerline.ui.draw.DrawToolbar
-import com.kunming.powerline.ui.draw.LongPressMenu
 import com.kunming.powerline.ui.draw.MapToolbar
 import com.kunming.powerline.ui.layermanage.LayerManageHost
 import com.kunming.powerline.ui.importui.ImportFlow
@@ -59,7 +58,9 @@ import com.kunming.powerline.ui.layer.LayerIds
 import com.kunming.powerline.ui.layer.MapLayer
 import com.kunming.powerline.ui.layer.RedSwitch
 import com.kunming.powerline.ui.layer.VoltageLegend
+import com.kunming.powerline.ui.map.AddPointDialog
 import com.kunming.powerline.ui.map.BasemapPickerSheet
+import com.kunming.powerline.ui.map.CoordinateActionMenu
 import com.kunming.powerline.ui.map.LayerRenderer
 import com.kunming.powerline.ui.map.MapController
 import com.kunming.powerline.ui.map.MapLibreView
@@ -67,7 +68,6 @@ import com.kunming.powerline.ui.map.NavigationHelper
 import com.kunming.powerline.ui.map.RoundIconButton
 import com.kunming.powerline.ui.map.SmallButton
 import com.kunming.powerline.ui.map.TrueNorthController
-import com.kunming.powerline.ui.map.startLineTour
 import com.kunming.powerline.ui.search.SearchBar
 import com.kunming.powerline.ui.search.SearchResultList
 import com.kunming.powerline.ui.settings.AboutScreen
@@ -77,11 +77,11 @@ import com.kunming.powerline.ui.theme.HintGray
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.ui.theme.PowerRedLight
 import com.kunming.powerline.util.FileSaver
-import com.kunming.powerline.util.GeoUtils
+import com.kunming.powerline.util.MapPointKind
+import com.kunming.powerline.util.MapPointTypes
 import com.kunming.powerline.util.VoltageStats
 import kotlinx.coroutines.launch
 import org.maplibre.geojson.Feature
-import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 @Composable
@@ -131,12 +131,13 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showSettings by remember { mutableStateOf(false) }
     var drawMode by remember { mutableStateOf(false) }
     var drawTool by remember { mutableStateOf(DrawTool.LINE) }
-    var longPressTarget by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var showLongMenu by remember { mutableStateOf(false) }
+    // 点击 / 长按地图选中的坐标（经度 to 纬度），用于导航或建立业务点位
+    var pickedPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var showPointMenu by remember { mutableStateOf(false) }
+    var pendingPointKind by remember { mutableStateOf<MapPointKind?>(null) }
     var navInfo by remember { mutableStateOf<String?>(null) }
     var showResults by remember { mutableStateOf(false) }
     var showTowerSheet by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf(false) }
     var trueNorth by remember { mutableStateOf(false) }
     var validationIssues by remember { mutableStateOf<List<ValidationIssue>>(emptyList()) }
     var sectionResult by remember { mutableStateOf<SectionLengthResult?>(null) }
@@ -177,9 +178,12 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     androidx.activity.compose.BackHandler(
         enabled = showMapData || showServerSettings || showCustomMapSources || showDataSync ||
             showServerFiles || showHelpDoc || showAbout || managerTarget != null || showImport || showSettings ||
-            showLayers || showBasemap || showResults || showTowerSheet || drawMode
+            showLayers || showBasemap || showResults || showTowerSheet || drawMode ||
+            showPointMenu || pendingPointKind != null
     ) {
         when {
+            pendingPointKind != null -> pendingPointKind = null
+            showPointMenu -> showPointMenu = false
             showHelpDoc -> showHelpDoc = false
             showAbout -> showAbout = false
             showCustomMapSources -> showCustomMapSources = false
@@ -304,24 +308,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         showResults = false
     }
 
-    // 导航连线
-    LaunchedEffect(myLoc) {
-        val loc = myLoc
-        val t = longPressTarget
-        if (loc != null && t != null) {
-            controller.setFeatures(
-                LayerIds.SRC_ROUTE,
-                listOf(
-                    Feature.fromGeometry(
-                        LineString.fromLngLats(
-                            listOf(Point.fromLngLat(loc.lon, loc.lat), Point.fromLngLat(t.second, t.first))
-                        )
-                    )
-                )
-            )
-        }
-    }
-
     Box(Modifier.fillMaxSize().background(Color(0xFFFBF6EE))) {
         MapLibreView(
             controller = controller,
@@ -391,14 +377,18 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                                 thematicSheet = thematicFeatures.first { it.id == fid }
                             }
                         }
+                    } else {
+                        // 点到空白坐标：提供「设为危险点 / 护线员 / 收藏点 / 视频监控」等操作
+                        pickedPoint = lon to lat
+                        showPointMenu = true
                     }
                 }
             },
             onLongPress = { lat, lon, _, _ ->
                 if (followMode) vm.setFollowMode(false)
                 if (!drawMode) {
-                    longPressTarget = lon to lat
-                    showLongMenu = true
+                    pickedPoint = lon to lat
+                    showPointMenu = true
                 }
             }
         )
@@ -465,11 +455,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         // ---------------- 右侧工具栏 ----------------
         MapToolbar(
             bearing = controller.currentBearing,
-            playing = playing,
-            onPlayToggle = {
-                playing = !playing
-                if (playing) startLineTour(scope, controller, lines.firstOrNull()?.id, towers) { playing = false }
-            },
             onCamera = {
                 controller.snapshot { bmp ->
                     if (bmp != null) {
@@ -614,10 +599,6 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                         SmallButton("导航") {
                             NavigationHelper.open(context, NavigationHelper.NavTarget("${ln?.name} ${t.towerNumber}", t.lon, t.lat))
                         }
-                        SmallButton("设为导航目标") {
-                            longPressTarget = t.lon to t.lat
-                            vm.postMessage("已设为导航目标")
-                        }
                         SmallButton("拍照") {
                             val f = com.kunming.powerline.util.PhotoCapture.newPhotoFile(context)
                             pendingPhoto = f
@@ -631,35 +612,37 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             }
         }
 
-        // ---------------- 长按菜单 ----------------
-        LongPressMenu(
-            visible = showLongMenu,
-            onDismiss = { showLongMenu = false },
+        // ---------------- 坐标操作（点击 / 长按地图空白处）----------------
+        val point = pickedPoint
+        CoordinateActionMenu(
+            visible = showPointMenu && point != null,
+            lon = point?.first ?: 0.0,
+            lat = point?.second ?: 0.0,
+            onDismiss = { showPointMenu = false },
             onNavigate = {
-                longPressTarget?.let { (lon, lat) ->
+                point?.let { (lon, lat) ->
                     NavigationHelper.open(context, NavigationHelper.NavTarget("目标点", lon, lat))
                 }
             },
-            onCompassToggle = { navInfo = "罗盘显示已切换" },
             onResetNorth = { controller.resetNorth() },
-            onRouteToggle = {
-                val loc = myLoc
-                val t = longPressTarget
-                if (loc != null && t != null) {
-                    val d = GeoUtils.distance(loc.lon, loc.lat, t.first, t.second)
-                    navInfo = "直线距离 ${GeoUtils.formatDistance(d)}"
-                    controller.setFeatures(
-                        LayerIds.SRC_ROUTE,
-                        listOf(Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(loc.lon, loc.lat), Point.fromLngLat(t.first, t.second)))))
-                    )
-                } else {
-                    vm.postMessage("请先定位获取当前位置")
-                }
-            },
-            onCalibrate = {
-                navInfo = "已将目标点设为当前位置（校准）"
-            }
+            onPickKind = { pendingPointKind = it }
         )
+        pendingPointKind?.let { kind ->
+            point?.let { (lon, lat) ->
+                AddPointDialog(
+                    kind = kind,
+                    lon = lon,
+                    lat = lat,
+                    onDismiss = { pendingPointKind = null },
+                    onConfirm = { name, extra ->
+                        vm.addPointAt(kind, name, extra, lon, lat)
+                        toastText = MapPointTypes.savedMessage(
+                            kind, MapPointTypes.normalizeName(kind, name)
+                        )
+                    }
+                )
+            }
+        }
 
         // ---------------- 设置 ----------------
         AnimatedVisibility(showSettings, modifier = Modifier.fillMaxSize()) {

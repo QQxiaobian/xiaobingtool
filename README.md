@@ -1,12 +1,12 @@
-# 输电线路智能巡检地图系统（Android）
+# 输电线路工具箱（Android）
 
-昆明输电管理所输电线路智能巡检 App。原生安卓（Kotlin + Jetpack Compose + MapLibre Native），
+输电线路工具箱是一款面向输电线路运维的安卓地图工具。原生安卓（Kotlin + Jetpack Compose + MapLibre Native），
 以卫星影像为底图，叠加架空线路、电缆、杆塔、交叉跨越、视频监控、护线员、危险点等业务图层，
 并支持导入行政区划图等自定义专题图层（KML/KMZ/GeoJSON/SHP），支持搜索定位、绘制标注、导航、
 台账校验、线路导入与数据同步。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.5.0（versionCode 27）
+- **当前版本**：1.6.0（versionCode 28）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -23,10 +23,11 @@
 | 专题图层 | 自定义点/线/面图层，支持 KML / KMZ / GeoJSON / SHP 导入（含行政区划图）；图层面板可改名、改备注、调透明度/线宽、控制名称显示、批量操作；要素可定位、查看详情、转线路、改所属图层 |
 | 区域标注 | 面要素名称以质心独立点标注渲染（规避 MapLibre 面要素排版失效）；要素少时强制全显、要素多时自动碰撞避让；名称按缩放分级出现，可设置起始层级；点击区域弹出信息卡显示 KML 备注与扩展属性 |
 | 搜索 | 8 种语法：杆塔（线路名+杆塔号）、地名/POI、经纬度（自动识别度分秒）、`照片` / `起飞点` / `视频` / `护线员` 前缀、杆塔模糊、收藏点、线路名 |
-| 工具栏 | 沿线杆塔漫游播放、地图截图存 `Pictures/输电巡检`、单次定位、放大/缩小、指北针（跟随旋转，点击回正北） |
-| 长按菜单 | 高德/百度导航、罗盘开关、重置正北、测距连线、位置校准 |
+| 工具栏 | 地图截图存 `Pictures/输电巡检`、单次定位、放大/缩小、指北针（跟随旋转，点击回正北）；线路自动播放已取消 |
+| 坐标操作 | 点击或长按地图空白处，可把该坐标设为危险点 / 护线员 / 收藏点 / 视频监控 / 起飞点 / 交叉跨越，也可高德/百度导航到此位置、重置正北；不再提供「当前位置→目标 连线测距」 |
 | 绘制 | 线/多边形/圆/矩形/文字；实时球面长度与面积；撤销/删除/暂停/保存；存 Room `custom_overlay`；导出 GeoJSON |
-| 设置 | **服务器地址运行时可改**（NAS 主地址一键测试并自动填充，无需重新打包）、标注字号 8–20sp、名称起始缩放级 6–17、真北/磁北、地图组、地图数据设置、台账校验、内置使用帮助、关于应用 / 检查更新 |
+| 设置 | **服务器地址运行时可改**（NAS 主地址一键测试并自动填充，无需重新打包）、标注字号 8–20sp、名称与杆塔点显示级别 6–17、真北/磁北、地图组、地图数据设置、台账校验、内置使用帮助、关于应用 / 检查更新 |
+| 显隐联动（1.6.0） | 电压等级筛选同时作用于线路、电缆与杆塔点（关闭的等级不再残留杆塔图标）；低于「名称与杆塔点显示级别」时只画线路、不画杆塔点 |
 | 线路管理 | 模板下载、创建空线路、同塔多回显示优化、Excel 导入（列映射/预览/错误导出）、PMS 内网 UPSERT 增量导入、KML/KMZ/GeoJSON/GPX/SHP 导入、全量删除（输入「删除」二次确认）、统一校验规则、导入批次 5 分钟内撤销 |
 | 图层导入 | 收藏点/起飞点/危险点/交叉跨越/视频监控/护线员/电缆 7 个图层全部支持 KML/KMZ/GeoJSON/SHP 导入与逐条编辑；影像图层支持从相册批量导入并按 EXIF GPS 定位 |
 | 文件解析 | 自写 KML/KMZ/GPX/GeoJSON 解析器；SHP（含 DBF 属性表、GBK 解码、Gauss-Krüger/WebMercator 反算）；KMZ/SHP 支持 zip 打包上传；解析 KML `ExtendedData`/`SimpleData` 扩展属性作为区域名称与备注 |
@@ -51,7 +52,7 @@
 |---|---|
 | `:app:assembleDebug` | ✅ 通过 |
 | `:app:assembleRelease`（R8 混淆 + 签名） | ✅ 通过，通用包 46 MB / arm64-v8a 单包 26 MB |
-| `:app:testDebugUnitTest` | ✅ 148 项全部通过 |
+| `:app:testDebugUnitTest` | ✅ 159 项全部通过 |
 | 签名校验 `apksigner verify` | ✅ 通过（v1 + v2 + v3 三签齐全；默认显示 `v1: false` 仅因 minSdk 26 只走 v2 验证路径，`--min-sdk-version 23` 可见 v1=true，详见 4.2.1） |
 | ABI 覆盖 | arm64-v8a / armeabi-v7a / x86 / x86_64（含夜神、雷电模拟器） |
 | 最低系统 | Android 8.0（API 26） |
@@ -145,7 +146,7 @@ cp local.properties.template local.properties
 
 ### 3.2 高德定位（AMap Location）
 
-1. 打开 <https://console.amap.com/>，创建应用（应用名称如「输电智能巡检」）。
+1. 打开 <https://console.amap.com/>，创建应用（应用名称如「输电线路工具箱」）。
 2. 「添加 Key」，**服务平台选择 Android 平台**。
 3. `PackageName` 填 `com.kunming.powerline`。
 4. `SHA1` 取签名证书指纹：
@@ -520,6 +521,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.6.0 | 2026-11 | 按需求：① 取消「当前位置→目标 连线测距」（删除菜单项、导航连线图层与 ViewModel 状态）；② 点击 / 长按地图坐标可直接设为危险点 / 护线员 / 收藏点 / 视频监控 / 起飞点 / 交叉跨越（新增 `MapPointTypes` 与坐标操作菜单）；③ 电压等级筛选联动杆塔点、低缩放级别只显示线路（新增 `TowerVisibility`，`applyLabelZoom` 联动 `LYR_TOWER`）；④ 界面、示例数据与文档全面清除单位名称；⑤ 应用名改为「输电线路工具箱」；⑥ 删除线路漫游自动播放。新增 `MapPointTypesTest` / `TowerVisibilityTest`，159 项单测全部通过 |
 | 1.5.0 | 2026-11 | 按需求：① 主界面移除红色「!」按钮、线路漫游改为仅播放中高亮；② 左下角电压图例显示各电压等级线路条数（新增 `VoltageStats` + 5 项单测）；③ **彻底删除位置共享**（App 前台服务 / WebSocket / 保活 / 开机自启 / 后台与通知权限 / WS 地址配置，以及 NAS 服务端 `/ws/location` 与 flask-sock 依赖），定位仍用本机真实 GPS；④ 帮助主文档改为 App 内置离线页（替代跳转外部网址）；⑤ 设置新增「关于应用 / 检查更新」（GitHub Releases API + `VersionCompare` 6 项单测）。148 项单测通过 |
 | 1.4.1 | 2026-11 | 修复沉浸式（edge-to-edge）布局下设置类页面顶部按钮被系统状态栏遮挡、无法点击的问题：`SettingsPanel` / `ServerSettingsScreen` / `CustomMapSourceScreen` / `DataSyncScreen` / `ServerFilesScreen` / `LayerPanel` 与照片查看器关闭按钮统一补 `statusBarsPadding()`；「服务器文件」页的顶部「批量选择」改为醒目按钮、内容区增加第二个多选入口、多选时整行可勾选、批量导入按钮加大点击区域；137 项单测通过 |
 | 1.4.0 | 2026-11 | 线路 / 专题图层支持勾选批量删除（二次确认）；服务器文件可勾选多个一键导入为线路或图层、批量删除；服务器导入线路时线路名默认取文件名并自动识别电压等级（新增 `ServerImportNaming` 与 8 项单测）；打包默认服务器地址改为 `192.168.1.12:8902` 单端口，NAS 侧 `PMS_PORT` 同步对齐；137 项单测通过 |

@@ -160,7 +160,7 @@ fun AboutScreen(
                 }
 
                 Text(
-                    "输电线路智能巡检 · 昆明供电局输电运维\n" +
+                    "输电线路工具箱\n" +
                         "本应用仅在内网使用台账与地图数据；定位只在本机使用，不上传、不共享。",
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 17.sp,
                     modifier = Modifier.padding(vertical = 12.dp)

@@ -120,9 +120,6 @@ object LayerIds {
     const val LYR_PREVIEW_LINE = "lyr-preview-line"
     const val LYR_PREVIEW_FILL = "lyr-preview-fill"
 
-    const val SRC_ROUTE = "src-route"
-    const val LYR_ROUTE = "lyr-route"
-
     const val SRC_SEARCH = "src-search"
     const val LYR_SEARCH = "lyr-search"
 

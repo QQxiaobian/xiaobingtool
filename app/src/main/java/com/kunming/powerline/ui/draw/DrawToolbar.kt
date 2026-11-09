@@ -126,13 +126,13 @@ private fun ToolIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 }
 
 /**
- * 右侧悬浮工具栏（播放 / 相机 / 定位 / 放大 / 缩小 / 罗盘）
+ * 右侧悬浮工具栏（截图 / 定位 / 放大 / 缩小 / 罗盘）
+ *
+ * 1.6.0 起取消线路漫游自动播放，工具栏不再有播放按钮。
  */
 @Composable
 fun MapToolbar(
     bearing: Double,
-    playing: Boolean,
-    onPlayToggle: () -> Unit,
     onCamera: () -> Unit,
     onLocate: () -> Unit,
     following: Boolean = false,
@@ -147,12 +147,6 @@ fun MapToolbar(
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 漫游未开始时用中性色，只有播放中才高亮，避免主界面常驻一块突兀的红色
-        ToolButton(
-            if (playing) "⏸" else "▶",
-            if (playing) "暂停漫游" else "线路漫游",
-            if (playing) PowerRed else Color.Unspecified
-        ) { onPlayToggle() }
         ToolButton("📷", "截图", Color.Unspecified, onCamera)
         ToolButton(
             if (following) "🧭" else "🎯",
@@ -222,54 +216,3 @@ private fun CompassButton(bearing: Double, onClick: () -> Unit) {
     }
 }
 
-/**
- * 长按菜单（5 项）
- */
-@Composable
-fun LongPressMenu(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    onNavigate: () -> Unit,
-    onCompassToggle: () -> Unit,
-    onResetNorth: () -> Unit,
-    onRouteToggle: () -> Unit,
-    onCalibrate: () -> Unit
-) {
-    if (!visible) return
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFFFBF6EE),
-        shape = RoundedCornerShape(18.dp),
-        title = { Text("目标点操作", fontWeight = FontWeight.Bold, color = Color(0xFF2B2B2B), fontSize = 17.sp) },
-        text = {
-            Column {
-                MenuRow("🧭 导航到此位置", onDismiss, onNavigate)
-                MenuRow("🧲 显示 / 关闭罗盘", onDismiss, onCompassToggle)
-                MenuRow("⬆ 重置地图方向（指北）", onDismiss, onResetNorth)
-                MenuRow("📏 显示 / 关闭 当前位置→目标 连线测距", onDismiss, onRouteToggle)
-                MenuRow("📍 将目标点设为当前所在位置（校准）", onDismiss, onCalibrate)
-            }
-        },
-        confirmButton = {
-            Text(
-                "关闭", color = Color(0xFFB71C1C), fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { onDismiss() }.padding(10.dp)
-            )
-        }
-    )
-}
-
-@Composable
-private fun MenuRow(text: String, onDismiss: () -> Unit, onClick: () -> Unit) {
-    Column {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { onDismiss(); onClick() }
-                .padding(vertical = 11.dp)
-        ) {
-            Text(text, fontSize = 13.5.sp, color = Color(0xFF333333))
-        }
-        androidx.compose.material3.Divider(color = Color(0x12000000), thickness = 0.7.dp)
-    }
-}

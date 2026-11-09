@@ -122,11 +122,11 @@ fun SettingsPanel(
 
             Divider(color = Color(0x14000000), thickness = 0.7.dp, modifier = Modifier.padding(vertical = 6.dp))
             Text(
-                "名称显示缩放级别：${"%.0f".format(labelZoom)} 级",
+                "名称与杆塔点显示级别：${"%.0f".format(labelZoom)} 级",
                 fontSize = 12.5.sp, color = Color(0xFF444444)
             )
             Text(
-                "控制线路名 / 专题点名 / 杆塔号；区域名始终显示，业务点位名称 12 级起显示",
+                "低于该级别只显示线路：线路名 / 专题点名 / 杆塔号与杆塔点图标一并隐藏；区域名始终显示，业务点位名称 12 级起显示",
                 fontSize = 10.5.sp, color = Color(0xFF8D857B)
             )
             Slider(

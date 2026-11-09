@@ -362,7 +362,7 @@ private fun kindName(kind: String): String = when (kind) {
 }
 
 /**
- * 10.5 从输电管理所设备台帐导入
+ * 10.5 从 PMS 设备台账导入
  */
 @Composable
 fun PmsImportScreen(
@@ -396,8 +396,8 @@ fun PmsImportScreen(
     }
 
     ImportScaffold(
-        title = "从输电管理所设备台帐导入",
-        subtitle = "从输电管理所输电线路设备台帐导入线路信息",
+        title = "从 PMS 设备台账导入",
+        subtitle = "从内网 PMS 线路设备台账导入线路信息",
         onBack = onBack
     ) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -408,7 +408,7 @@ fun PmsImportScreen(
             ) {
                 Text("接口地址：${pmsRepository.baseUrl()}", fontSize = 11.sp, color = HintGray)
                 Spacer(Modifier.height(10.dp))
-                LabeledField("单位", unit, { unit = it }, "如：昆明输电管理所（可留空）")
+                LabeledField("单位", unit, { unit = it }, "如：运维单位（可留空）")
                 Spacer(Modifier.height(10.dp))
                 LabeledField("线路名关键字", keyword, { keyword = it }, "模糊匹配，可留空")
                 Spacer(Modifier.height(10.dp))
