@@ -499,7 +499,7 @@ class MapViewModel @Inject constructor(
 
     private suspend fun doSearch(q: String): List<SearchHit> {
         val hits = mutableListOf<SearchHit>()
-        val parts = q.split(Regex("\\s+"))
+        val parts = q.split(Regex("[,，;；\\s]+"))
         val head = parts.firstOrNull()?.lowercase() ?: ""
 
         // 1. 经纬度跳转："103.0232 25.2203"
@@ -645,10 +645,10 @@ class MapViewModel @Inject constructor(
     }
 
     // ------------------------------------------------------------------
-    // 点击地图坐标 -> 保存为业务点位（1.6.0）
+    // 长按地图坐标 -> 保存为业务点位（1.6.0）
     // ------------------------------------------------------------------
     /**
-     * 把地图上的点击 / 长按坐标写入指定点位图层。
+     * 把地图上的长按坐标写入指定点位图层。
      * 数据库写入统一走 IO 线程，成功后刷新图层版本，图标即时出现在地图上。
      */
     fun addPointAt(kind: MapPointKind, name: String, extra: String, lon: Double, lat: Double) {

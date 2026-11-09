@@ -3,7 +3,7 @@ package com.kunming.powerline.util
 /**
  * 点击地图坐标后可创建的业务点位类型（1.6.0）。
  *
- * 点击 / 长按地图空白处会弹出类型选择，选中后输入名称即写入对应图层。
+ * 长按地图空白处会弹出类型选择，选中后输入名称即写入对应图层。
  * 这里只放纯数据与文本规则，不依赖 Android / Compose，便于 JVM 单测。
  */
 enum class MapPointKind(

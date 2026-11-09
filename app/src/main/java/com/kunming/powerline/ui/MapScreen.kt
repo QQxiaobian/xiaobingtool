@@ -131,7 +131,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     var showSettings by remember { mutableStateOf(false) }
     var drawMode by remember { mutableStateOf(false) }
     var drawTool by remember { mutableStateOf(DrawTool.LINE) }
-    // 点击 / 长按地图选中的坐标（经度 to 纬度），用于导航或建立业务点位
+    // 长按地图选中的坐标（经度 to 纬度），用于建立业务点位或导航
     var pickedPoint by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var showPointMenu by remember { mutableStateOf(false) }
     var pendingPointKind by remember { mutableStateOf<MapPointKind?>(null) }
@@ -173,6 +173,10 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         }
     }
     var toastText by remember { mutableStateOf<String?>(null) }
+    // ViewModel 全局消息（搜索未找到 / 导入 / 删除 / 保存反馈等）统一走底部轻提示
+    LaunchedEffect(Unit) {
+        vm.messages.collect { toastText = it }
+    }
 
     // 返回键逐级关闭浮层，避免误退出
     androidx.activity.compose.BackHandler(
@@ -378,9 +382,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                             }
                         }
                     } else {
-                        // 点到空白坐标：提供「设为危险点 / 护线员 / 收藏点 / 视频监控」等操作
-                        pickedPoint = lon to lat
-                        showPointMenu = true
+                        // 点到空白坐标不响应；长按才会弹出「此坐标操作」菜单
                     }
                 }
             },
@@ -612,7 +614,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             }
         }
 
-        // ---------------- 坐标操作（点击 / 长按地图空白处）----------------
+        // ---------------- 坐标操作（长按地图空白处）----------------
         val point = pickedPoint
         CoordinateActionMenu(
             visible = showPointMenu && point != null,

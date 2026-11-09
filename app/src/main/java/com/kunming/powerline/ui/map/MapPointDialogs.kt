@@ -34,7 +34,7 @@ import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.util.MapPointKind
 
 /**
- * 点击 / 长按地图坐标后的操作菜单（1.6.0）。
+ * 长按地图坐标后的操作菜单（1.6.0）。
  *
  * 取代原先的「目标点操作」：不再有「当前位置→目标 连线测距」，
  * 改为把该坐标直接保存成危险点 / 护线员 / 收藏点 / 视频监控等业务点位。
