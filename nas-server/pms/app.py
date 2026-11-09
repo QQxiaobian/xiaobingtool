@@ -191,7 +191,7 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.6",
+        "version": "1.6.2",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,
@@ -461,22 +461,44 @@ def _safe_name(raw):
     return name[:120]
 
 
-def _file_id(name):
-    """文件名哈希做 id：稳定、ASCII 安全，中文文件名也不会破坏 URL"""
-    return hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+def _decode_header(raw):
+    """修复 Werkzeug 把 HTTP 头按 latin-1 解码导致的中文乱码。
+
+    App / CLI 应对 X-File-Name / X-File-Dir 做 UTF-8 URL 编码后传输；
+    若客户端忘了编码而直接发原始 UTF-8 字节，这里尝试 latin-1 → UTF-8 还原。
+    纯 ASCII（URL 编码后的值）不受影响。
+    """
+    if not raw:
+        return ""
+    try:
+        return raw.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return raw
+
+
+def _file_id(rel_path):
+    """相对路径哈希做 id：稳定、ASCII 安全，中文文件名也不会破坏 URL"""
+    return hashlib.sha256(rel_path.encode("utf-8")).hexdigest()[:16]
 
 
 def scan_server_files():
+    """递归扫描 FILE_ROOT（含子文件夹），path 为相对路径（POSIX 分隔符）。
+
+    1.6.2 起 App「服务器文件」页支持文件夹视图，靠 path 建层级；
+    根目录下的文件 path 与 name 相同，老版本 App 忽略 path 字段仍正常工作。
+    """
     FILE_ROOT.mkdir(parents=True, exist_ok=True)
     out = []
-    for f in sorted(FILE_ROOT.iterdir(), key=lambda p: p.name.lower()):
+    for f in sorted(FILE_ROOT.rglob("*"), key=lambda p: p.name.lower()):
         if not f.is_file() or f.suffix.lower() not in ALLOWED_FILE_EXT:
             continue
         st = f.stat()
         ext = f.suffix.lower().lstrip(".")
+        rel = f.relative_to(FILE_ROOT).as_posix()
         out.append({
-            "id": _file_id(f.name),
+            "id": _file_id(rel),
             "name": f.name,
+            "path": rel,
             "sizeBytes": st.st_size,
             "ext": ext,
             "kind": "shp" if ext in ("shp", "zip") else ("geojson" if ext in ("geojson", "json") else ext),
@@ -490,15 +512,16 @@ def _find_file(fid):
     for meta in scan_server_files():
         if meta["id"] != fid:
             continue
-        f = (FILE_ROOT / meta["name"]).resolve()
-        if f.is_file() and f.parent == root:
+        f = (FILE_ROOT / meta["path"]).resolve()
+        # 只要还在 FILE_ROOT 之内即可（允许子文件夹），拒绝目录穿越
+        if f.is_file() and root in f.parents:
             return f, meta
     return None, None
 
 
 @app.get("/api/files")
 def list_server_files():
-    """App「服务器文件」页：列出可直接下载的 KML 等原始文件"""
+    """App「服务器文件」页：列出可直接下载的 KML 等原始文件（含子文件夹）"""
     return jsonify(scan_server_files())
 
 
@@ -508,10 +531,27 @@ def download_server_file(fid):
     if f is None:
         return jsonify({"success": False, "message": "文件不存在"}), 404
     try:
-        return send_from_directory(str(FILE_ROOT), f.name,
+        return send_from_directory(str(FILE_ROOT), meta["path"],
                                    as_attachment=True, download_name=f.name)
     except TypeError:  # Flask 1.x 没有 download_name
-        return send_from_directory(str(FILE_ROOT), f.name, as_attachment=True)
+        return send_from_directory(str(FILE_ROOT), meta["path"], as_attachment=True)
+
+
+def _safe_rel_dir(raw):
+    """清洗相对子目录：逐段取 basename，禁止 .. 与绝对路径，保留中文。
+
+    含「..」等危险段时返回 None（由调用方直接拒绝，而不是悄悄改写）。
+    """
+    src = (raw or "").replace("\\", "/")
+    if ".." in src.split("/"):
+        return None
+    parts = []
+    for seg in src.split("/"):
+        seg = _safe_name(seg)
+        if seg in ("", "."):
+            continue
+        parts.append(seg)
+    return "/".join(parts)
 
 
 @app.post("/api/files")
@@ -520,15 +560,23 @@ def upload_server_file():
 
     OkHttp 的 multipart filename 带中文时 Werkzeug 会解码成乱码，所以 App / CLI
     统一把 UTF-8 URL 编码后的真实文件名放进 X-File-Name，这里优先取它。
+    1.6.2 起支持 X-File-Dir 头指定子文件夹（如「220kV/某片区」），不存在会自动创建；
+    不传则落到根目录。
     """
-    header_name = _safe_name(unquote(request.headers.get("X-File-Name", "")))
-    part = request.files.get("file") if request.files else None
+    header_name = _safe_name(unquote(_decode_header(request.headers.get("X-File-Name", ""))))
+    header_dir = _safe_rel_dir(unquote(_decode_header(request.headers.get("X-File-Dir", ""))))
+    if header_dir is None:
+        return jsonify({"success": False, "message": "非法目录（不允许 ..）"}), 400
+    # 注意：必须先取原始字节再碰 request.files——Werkzeug 访问 .files 会解析并
+    # 消费请求流，之后 get_data() 对 raw body 模式会返回空。
+    raw_body = request.get_data(cache=True)
+    part = request.files.get("file") if request.mimetype == "multipart/form-data" else None
     if part is not None:
         name = header_name or _safe_name(unquote(part.filename or ""))
         data = part.read()
     else:
         name = header_name
-        data = request.get_data() or b""
+        data = raw_body
     if not name:
         return jsonify({"success": False, "message": "缺少文件名"}), 400
     if Path(name).suffix.lower() not in ALLOWED_FILE_EXT:
@@ -539,12 +587,16 @@ def upload_server_file():
     if len(data) > MAX_FILE_BYTES:
         return jsonify({"success": False, "message": "文件超过 200 MB 限制"}), 413
     FILE_ROOT.mkdir(parents=True, exist_ok=True)
-    target = (FILE_ROOT / name).resolve()
-    if target.parent != FILE_ROOT.resolve():
+    target = (FILE_ROOT / header_dir / name).resolve() if header_dir \
+        else (FILE_ROOT / name).resolve()
+    if FILE_ROOT.resolve() not in target.parents:
         return jsonify({"success": False, "message": "非法文件名"}), 400
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+    rel = target.relative_to(FILE_ROOT).as_posix()
     return jsonify({"success": True, "message": "文件已上传", "count": 1,
-                    "id": _file_id(name), "name": name, "sizeBytes": len(data)})
+                    "id": _file_id(rel), "name": name, "path": rel,
+                    "sizeBytes": len(data)})
 
 
 @app.delete("/api/files/<fid>")
@@ -553,6 +605,18 @@ def delete_server_file(fid):
     if f is None:
         return jsonify({"success": False, "message": "文件不存在"}), 404
     f.unlink()
+    # 子文件夹删空后顺手清理空目录（只清到 FILE_ROOT 为止）
+    try:
+        parent = f.parent.resolve()
+        root = FILE_ROOT.resolve()
+        while parent != root and root in parent.parents:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+    except OSError:
+        pass
     return jsonify({"success": True, "message": "已删除 %s" % meta["name"], "count": 1})
 
 

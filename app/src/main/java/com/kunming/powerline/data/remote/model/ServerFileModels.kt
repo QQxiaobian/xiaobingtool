@@ -12,6 +12,9 @@ import com.squareup.moshi.JsonClass
 data class ServerFileDto(
     val id: String = "",
     val name: String = "",
+    /** 相对 files 根目录的路径（POSIX 分隔符，1.6.2 起服务端递归扫描返回）。
+     *  老服务端不带此字段时为空串，此时按根目录文件处理。 */
+    val path: String = "",
     val sizeBytes: Long = 0L,
     /** kml / kmz / geojson / json / gpx / shp / zip */
     val ext: String = "",

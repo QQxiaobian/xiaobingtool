@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,6 +33,8 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +57,7 @@ import com.kunming.powerline.ui.theme.HintGray
 import com.kunming.powerline.ui.theme.LightPanelTheme
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.util.FileSaver
+import com.kunming.powerline.util.ServerFileBrowser
 
 /**
  * 服务器原始文件库（1.3.0）。
@@ -64,6 +68,8 @@ import com.kunming.powerline.util.FileSaver
  *
  * 1.4.0：支持批量勾选，一次导入为线路 / 图层，或批量删除服务器文件；
  * 导入线路时默认用文件名作为线路名，并自动从文件名识别电压等级。
+ * 1.6.2：支持文件夹视图（服务端递归扫描返回 path，逐级进入/返回），支持跨全库按
+ * 文件名或路径搜索。
  */
 @Composable
 fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
@@ -77,6 +83,9 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
     var selectionMode by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // 1.6.2 文件夹视图与搜索
+    var currentDir by remember { mutableStateOf("") }   // "" = 根目录
+    var query by remember { mutableStateOf("") }
 
     fun tell(ok: Boolean, msg: String) { statusOk = ok; status = msg }
     fun toggle(id: String) {
@@ -102,6 +111,15 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
     }
 
     LaunchedEffect(Unit) { refresh() }
+
+    // 1.6.2 当前视图：搜索时跨全库匹配，否则按当前目录浏览
+    val searching = query.isNotBlank()
+    val visibleFiles = if (searching) {
+        ServerFileBrowser.search(files, query)
+    } else {
+        ServerFileBrowser.filesIn(files, currentDir)
+    }
+    val visibleDirs = if (searching) emptyList() else ServerFileBrowser.subdirs(files, currentDir)
 
     LightPanelTheme {
         Column(
@@ -166,6 +184,37 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().height(40.dp)
                 ) { Text("上传本地文件到服务器", fontSize = 13.sp) }
 
+                // ---------- 1.6.2 文件搜索 ----------
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        selected = emptySet()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text("搜索文件名或路径，跨全部文件夹…", fontSize = 12.sp, color = Color(0xFF9A9086), maxLines = 1)
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.5.sp, color = Color(0xFF2B2B2B)),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = PowerRed,
+                        unfocusedBorderColor = Color(0x22000000),
+                        cursorColor = PowerRed
+                    ),
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = ""; selected = emptySet() }) {
+                                Icon(Icons.Default.Clear, null, tint = Color(0xFF5C544A), modifier = Modifier.size(17.dp))
+                            }
+                        }
+                    }
+                )
+
                 if (status != null) {
                     Spacer(Modifier.height(10.dp))
                     Box(
@@ -186,12 +235,45 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(16.dp))
+                // ---------- 1.6.2 面包屑 / 返回上一级（文件夹模式）----------
+                if (!searching) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (currentDir.isNotBlank()) {
+                            Text(
+                                "⬅ 返回上一级", fontSize = 12.sp, color = PowerRed,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .background(Color(0x14B71C1C), RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        currentDir = ServerFileBrowser.parentOf(currentDir)
+                                        selected = emptySet()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        Text(
+                            ServerFileBrowser.breadcrumb(currentDir)
+                                .joinToString(" / ") { it.first },
+                            fontSize = 11.5.sp, color = Color(0xFF5C544A),
+                            maxLines = 2
+                        )
+                    }
+                }
+
                 // 内容区也放一个多选入口：即使顶部栏被系统 UI 挡住，这里也一定能点
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
                         SectionTitle(
-                            "服务器上的文件（${files.size}）" +
-                                if (selectionMode) " · 已选 ${selected.size}" else ""
+                            when {
+                                searching -> "搜索结果（${visibleFiles.size} / 共 ${files.size}）"
+                                else -> "服务器上的文件（${visibleFiles.size} 个文件，${
+                                    visibleDirs.size
+                                } 个文件夹）" + if (selectionMode) " · 已选 ${selected.size}" else ""
+                            }
                         )
                     }
                     Text(
@@ -206,14 +288,27 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                             .padding(horizontal = 10.dp, vertical = 7.dp)
                     )
                 }
-                if (files.isEmpty()) {
+                if (!searching && files.isEmpty()) {
                     Text(
                         "暂无文件。请确认 NAS 已更新到 1.3 服务端、/health 里 files 字段可见，" +
-                            "并把文件放进 nas-server/data/files/ 目录。",
+                            "并把文件放进 nas-server/data/files/ 目录（支持子文件夹）。",
+                        fontSize = 11.5.sp, color = HintGray,
+                        modifier = Modifier.padding(vertical = 10.dp), lineHeight = 17.sp
+                    )
+                } else if (searching && visibleFiles.isEmpty()) {
+                    Text(
+                        "没有匹配「$query」的文件。关键字会同时匹配文件名与所在文件夹路径。",
                         fontSize = 11.5.sp, color = HintGray,
                         modifier = Modifier.padding(vertical = 10.dp), lineHeight = 17.sp
                     )
                 } else {
+                    if (visibleDirs.isEmpty() && visibleFiles.isEmpty()) {
+                        Text(
+                            "此文件夹为空。可把文件拷进 NAS 上对应的子文件夹，或在 NAS 上新建文件夹整理。",
+                            fontSize = 11.5.sp, color = HintGray,
+                            modifier = Modifier.padding(vertical = 10.dp), lineHeight = 17.sp
+                        )
+                    }
                     // ---------- 1.4.0 批量操作栏 ----------
                     if (selectionMode) {
                         Row(
@@ -222,7 +317,7 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                         ) {
                             Text(
                                 "全选", fontSize = 12.sp, color = PowerRed,
-                                modifier = Modifier.clickable { selected = files.map { it.id }.toSet() }
+                                modifier = Modifier.clickable { selected = visibleFiles.map { it.id }.toSet() }
                             )
                             Spacer(Modifier.width(14.dp))
                             Text(
@@ -270,7 +365,38 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                         Spacer(Modifier.height(6.dp))
                     }
 
-                    files.forEach { f ->
+                    // ---------- 1.6.2 文件夹行（仅文件夹模式）----------
+                    visibleDirs.forEach { d ->
+                        val dirPath = if (currentDir.isBlank()) d else "$currentDir/$d"
+                        val countIn = ServerFileBrowser.filesIn(files, dirPath).size
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { currentDir = dirPath; selected = emptySet() }
+                                .padding(vertical = 5.dp)
+                                .background(Color(0xFFFFF4E5), RoundedCornerShape(10.dp))
+                                .padding(11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📁", fontSize = 15.sp)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    d, fontSize = 12.5.sp, color = Color(0xFF2B2B2B),
+                                    fontWeight = FontWeight.Medium, maxLines = 1
+                                )
+                                Text(
+                                    "文件夹 · 点击进入",
+                                    fontSize = 10.5.sp, color = HintGray
+                                )
+                            }
+                            Text(
+                                "$countIn 个文件", fontSize = 11.sp, color = Color(0xFF8D6E63)
+                            )
+                        }
+                    }
+
+                    visibleFiles.forEach { f ->
                         Column(
                             Modifier
                                 .fillMaxWidth()
@@ -301,8 +427,11 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                                     fontWeight = FontWeight.Medium
                                 )
                             }
+                            val loc = ServerFileBrowser.pathOf(f)
                             Text(
-                                "${ServerFileKind.label(f.name)} · ${FileSaver.formatSize(f.sizeBytes)} · ${f.updatedAt}",
+                                "${ServerFileKind.label(f.name)} · ${FileSaver.formatSize(f.sizeBytes)} · ${f.updatedAt}" +
+                                    // 搜索模式显示完整路径，方便定位文件在哪个文件夹
+                                    if (searching && loc != f.name) "\n位置：$loc" else "",
                                 fontSize = 10.5.sp, color = HintGray, lineHeight = 16.sp
                             )
                             if (!selectionMode) {
@@ -339,6 +468,7 @@ fun ServerFilesScreen(vm: MapViewModel, onBack: () -> Unit) {
                     "下载后按扩展名分派解析：KML/KMZ/GPX/GeoJSON → 线路或图层，ZIP/SHP → Shapefile。" +
                         "1.4.0 起可勾选多个文件批量导入；导入线路时线路名默认取文件名（去掉扩展名），" +
                         "并自动从文件名识别电压等级（如 220kV / 500千伏）。" +
+                        "1.6.2 起支持文件夹视图与跨全库搜索；服务端需同步更新（旧服务端仍可用，只是平铺显示）。" +
                         "文件保持在服务器不动，可重复导入；同名线路不自动去重。",
                     fontSize = 10.5.sp, color = HintGray, lineHeight = 17.sp
                 )

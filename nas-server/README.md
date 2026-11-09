@@ -42,10 +42,10 @@ App 里已经预留了两个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 | POST | `/api/datasets` | 上传 / 覆盖数据集（同 id 递增 version） |
 | POST | `/api/datasets/import` | 上传本地 JSON 文件导入 |
 | DELETE | `/api/datasets/{id}` | 删除数据集 |
-| GET | `/api/files` | `ServerFileDto[]`（扫描 files 目录，仅元数据） |
-| GET | `/api/files/{id}/download` | 下载原始文件字节（KML/KMZ/GeoJSON/GPX/SHP） |
-| POST | `/api/files` | 上传原始文件（multipart `file`；中文名走 `X-File-Name`） |
-| DELETE | `/api/files/{id}` | 删除服务器文件 |
+| GET | `/api/files` | `ServerFileDto[]`（递归扫描 files 目录含子文件夹，带相对路径 `path`） |
+| GET | `/api/files/{id}/download` | 下载原始文件字节（KML/KMZ/GeoJSON/GPX/SHP，含子文件夹） |
+| POST | `/api/files` | 上传原始文件（multipart `file`；中文名走 `X-File-Name`；可选 `X-File-Dir`（URL 编码）指定子文件夹，自动创建） |
+| DELETE | `/api/files/{id}` | 删除服务器文件（子文件夹删空后自动清理空目录） |
 
 ### 数据集服务（1.2.0 新增）
 
@@ -77,9 +77,16 @@ python3 tools/dataset_cli.py delete DS-xxxxxxxx
 **不需要先在 App 里上传，也不需要额外端口**，仍走 8080 的 `PMS_BASE_URL`。
 
 - 扩展名白名单：`.kml .kmz .geojson .json .gpx .shp .zip`；单文件上限 200 MB。
-- `id` = 文件名的 SHA-256 前 16 位，稳定且 ASCII 安全，中文文件名不会破坏下载 URL。
+- `id` = 相对路径的 SHA-256 前 16 位（1.6.2 起含子文件夹），稳定且 ASCII 安全，
+  中文文件名不会破坏下载 URL；同名文件放不同文件夹互不冲突。
+- 服务端 1.6.2 起递归扫描子文件夹，`/api/files` 每项带 `path`（相对路径，
+  POSIX 分隔符）；App 1.6.2 据此提供文件夹视图与跨全库搜索，
+  旧版 App 忽略 `path` 仍能平铺使用；旧服务端无 `path`，新版 App 自动平铺。
 - 上传时真实（可能含中文）文件名放在 `X-File-Name`（UTF-8 URL 编码），
   避免 OkHttp 的 multipart header 在 Werkzeug 侧乱码；multipart 的 `filename` 用 ASCII 占位。
+  1.6.2 起可用 `X-File-Dir`（UTF-8 URL 编码）指定子文件夹（如「220kV/某片区」），
+  目录不存在自动创建；含 `..` 的目录直接拒绝。忘记编码而直接发原始 UTF-8 头时，
+  服务端会尝试 latin-1 → UTF-8 修复。
 - `/health` 新增 `files` / `fileRoot` 字段，`version` 升级为 `1.3`。
 - 与 `datasets` 表的结构化 JSON 数据包互不冲突，两者可同时使用。
 
