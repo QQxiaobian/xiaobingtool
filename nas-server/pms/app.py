@@ -191,7 +191,7 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.6.2",
+        "version": "1.6.3",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,

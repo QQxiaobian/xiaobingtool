@@ -26,7 +26,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +45,8 @@ import com.kunming.powerline.ui.theme.PowerRedLight
 
 /**
  * 顶部搜索栏（1.5.0 起移除红色「!」按钮，搜索语法说明移到「设置 → 使用帮助」）
+ *
+ * 1.6.3 起默认检索全部图层数据，不再只搜线路 / 收藏夹。
  */
 @Composable
 fun SearchBar(
@@ -62,7 +63,8 @@ fun SearchBar(
                 onValueChange = onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = {
-                    Text("点击搜索地点、线路、电缆、收藏点...", fontSize = 12.5.sp, color = Color(0xFF9A9086), maxLines = 1)
+                    Text("搜索全部图层：线路、杆塔、区域、点位、照片...", fontSize = 12.5.sp,
+                        color = Color(0xFF9A9086), maxLines = 1)
                 },
                 leadingIcon = { Icon(Icons.Default.Search, null, tint = Color(0xFF5C544A), modifier = Modifier.size(19.dp)) },
                 trailingIcon = {
@@ -101,14 +103,16 @@ fun SearchBar(
 @Composable
 fun SearchHelpDialog(onDismiss: () -> Unit) {
     val rows = listOf(
-        "杆塔" to "线路名称 杆塔号，如「220kV某甲线 12」，定位并高亮",
-        "地名/POI" to "直接输入地名、收藏点、起飞点、全景影像名",
+        "全局搜索" to "直接输入关键词，检索所有图层：线路、杆塔、电缆、区域边界、专题要素、各类点位、照片、自定义标注",
+        "多关键词" to "空格分隔多个词，需同时匹配，如「五华区 隐患」",
         "经纬度" to "「103.0232 25.2203」，支持度分秒自动识别",
-        "照片" to "「照片 关键字」检索现场影像",
-        "起飞点" to "「起飞点 关键词」检索无人机起飞点",
-        "视频" to "「视频 关键词」检索视频监控台账",
+        "精确杆塔" to "线路名称 杆塔号，如「220kV某甲线 12」，定位并高亮",
+        "照片" to "「照片 关键字」只看现场影像",
+        "起飞点" to "「起飞点 关键词」只看无人机起飞点",
+        "视频" to "「视频 关键词」只看视频监控台账",
         "护线员" to "「护线员 人名」定位护线员实时位置",
-        "杆塔模糊" to "「杆塔 关键词」全文模糊搜索杆塔"
+        "杆塔模糊" to "「杆塔 关键词」全文模糊搜索杆塔",
+        "无坐标结果" to "导入批次、暂无位置的护线员只展示信息，不移动地图"
     )
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -178,6 +182,7 @@ fun SearchResultList(
     }
 }
 
+/** 结果类型标签（1.6.3 补齐全部图层类型） */
 fun SearchHit.kindLabel(): String = when (kind) {
     "tower" -> "杆塔"
     "line" -> "线路"
@@ -186,7 +191,14 @@ fun SearchHit.kindLabel(): String = when (kind) {
     "takeoff" -> "起飞点"
     "camera" -> "视频"
     "guardian" -> "护线员"
+    "guardian-offline" -> "护线员·无位置"
+    "danger" -> "危险点"
+    "crossing" -> "交叉跨越"
     "photo" -> "照片"
+    "overlay" -> "自定义标注"
+    "thematic" -> "专题要素"
+    "thematic-layer" -> "专题图层"
+    "batch" -> "导入批次"
     "coord" -> "坐标"
-    else -> ""
+    else -> kind
 }

@@ -39,9 +39,12 @@ import com.kunming.powerline.data.repository.ValidationIssue
 import com.kunming.powerline.ui.layer.MapLayer
 import com.kunming.powerline.ui.map.BasemapType
 import com.kunming.powerline.util.GeoUtils
+import com.kunming.powerline.util.GlobalSearch
 import com.kunming.powerline.util.MapPointKind
 import com.kunming.powerline.util.MapPointTypes
+import com.kunming.powerline.util.SearchRecord
 import com.kunming.powerline.util.VoltagePalette
+import com.kunming.powerline.ui.map.ThematicLabels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -482,7 +485,7 @@ class MapViewModel @Inject constructor(
     }
 
     // ------------------------------------------------------------------
-    // 搜索（支持 8 种语法）
+    // 搜索（1.6.3：默认全局检索所有图层 + 8 种快捷语法）
     // ------------------------------------------------------------------
     fun search(query: String) {
         val q = query.trim()
@@ -591,43 +594,192 @@ class MapViewModel @Inject constructor(
             }
         }
 
-        // 4. 地名 / POI / 收藏点 / 起飞点 / 全景影像名（模糊）
-        pointRepo.favoritesOnce().filter { it.name.contains(q) }.forEach {
-            hits.add(SearchHit(it.name, "收藏点 · ${it.category}", it.lon, it.lat, "favorite", it.id, 17.0))
-        }
-        pointRepo.takeoffsOnce().filter { it.name.contains(q) }.forEach {
-            hits.add(SearchHit(it.name, "起飞点", it.lon, it.lat, "takeoff", it.id, 17.0))
-        }
-        lines.value.filter { it.name.contains(q) }.forEach { l ->
-            val ts = db.towerDao().getByLine(l.id).sortedBy { it.seq }
+        // 4. 全局搜索：覆盖所有图层的数据（1.6.3）
+        return GlobalSearch.match(q, collectSearchRecords())
+    }
+
+    /**
+     * 把全部图层数据拍平成统一的检索记录（1.6.3）。
+     *
+     * 覆盖：架空线路、杆塔、电缆、6 类业务点位、现场照片、自定义标注、
+     * 专题图层、专题要素（KML/KMZ/GPX/SHP/GeoJSON 导入的区域边界与要素）、导入批次。
+     * 只读取 ViewModel 已订阅的 StateFlow 快照，运行在 IO 线程。
+     */
+    private fun collectSearchRecords(): List<SearchRecord> {
+        val out = mutableListOf<SearchRecord>()
+        val lineById = lines.value.associateBy { it.id }
+        val towersByLine = towers.value.groupBy { it.lineId }
+
+        // 架空线路
+        lines.value.forEach { l ->
+            val ts = towersByLine[l.id].orEmpty().sortedBy { it.seq }
             val first = ts.firstOrNull()
-            hits.add(
-                SearchHit(
-                    l.name, "线路 · ${VoltagePalette.labelOf(l.voltageLevel)} · ${ts.size} 基杆塔",
-                    first?.lon ?: 0.0, first?.lat ?: 0.0, "line", l.id, 13.0
-                )
+            val geo = GlobalSearch.firstCoordinate(l.geometryGeojson)
+            val vLabel = VoltagePalette.labelOf(l.voltageLevel)
+            out += SearchRecord(
+                title = l.name,
+                subtitle = "线路 · $vLabel · ${ts.size} 基杆塔",
+                lon = first?.lon ?: geo?.first,
+                lat = first?.lat ?: geo?.second,
+                kind = "line", refId = l.id, zoom = 13.0, priority = 0,
+                keywords = listOf(l.name, l.startStation, l.endStation, l.remark,
+                    vLabel, "${l.voltageLevel}kV")
             )
         }
-        cables.value.filter { it.name.contains(q) }.forEach { c ->
-            hits.add(SearchHit(c.name, "电缆 · ${VoltagePalette.labelOf(c.voltageLevel)}", 0.0, 0.0, "cable", c.id, 15.0))
+
+        // 电缆（从几何里取首坐标，不再一律 0,0）
+        cables.value.forEach { c ->
+            val p = GlobalSearch.firstCoordinate(c.geometryGeojson)
+            out += SearchRecord(
+                title = c.name,
+                subtitle = "电缆 · ${VoltagePalette.labelOf(c.voltageLevel)}",
+                lon = p?.first, lat = p?.second,
+                kind = "cable", refId = c.id, zoom = 14.0, priority = 5,
+                keywords = listOf(c.name, c.startNode, c.endNode, c.remark,
+                    "${c.voltageLevel}kV")
+            )
         }
-        db.towerDao().fuzzySearch(q).take(30).forEach { t ->
-            val ln = db.lineDao().getById(t.lineId)?.name ?: ""
-            hits.add(SearchHit("$ln ${t.towerNumber}", "杆塔 · 模糊匹配", t.lon, t.lat, "tower", t.id, 16.0))
+
+        // 杆塔
+        towers.value.forEach { t ->
+            val ln = lineById[t.lineId]?.name.orEmpty()
+            out += SearchRecord(
+                title = "$ln ${t.towerNumber}".trim(),
+                subtitle = "杆塔 · $ln",
+                lon = t.lon, lat = t.lat,
+                kind = "tower", refId = t.id, zoom = 17.0, priority = 10,
+                keywords = listOf(t.towerNumber, t.type, t.remark, ln)
+            )
         }
-        pointRepo.camerasOnce().filter { it.name.contains(q) }.forEach {
-            hits.add(SearchHit(it.name, "视频监控", it.lon, it.lat, "camera", it.id, 17.0))
+
+        // 六类业务点位
+        favorites.value.forEach { f ->
+            out += SearchRecord(f.name, "收藏点 · ${f.category}", f.lon, f.lat,
+                "favorite", f.id, 17.0, listOf(f.name, f.category, f.note), 15)
         }
-        pointRepo.guardiansOnce().filter { it.name.contains(q) && it.lastLon != null }.forEach {
-            hits.add(SearchHit(it.name, "护线员", it.lastLon!!, it.lastLat!!, "guardian", it.id, 16.0))
+        takeoffs.value.forEach { t ->
+            out += SearchRecord(t.name, "起飞点 · 海拔 ${t.altitude ?: "—"}m", t.lon, t.lat,
+                "takeoff", t.id, 17.0, listOf(t.name, t.note), 15)
         }
-        return hits.distinctBy { "${it.kind}-${it.refId}-${it.title}" }
+        cameras.value.forEach { c ->
+            out += SearchRecord(c.name, "视频监控 · ${c.status}", c.lon, c.lat,
+                "camera", c.id, 17.0, listOf(c.name, c.status, c.remark, c.rtspUrl), 15)
+        }
+        guardians.value.forEach { g ->
+            out += SearchRecord(g.name, "护线员 · ${g.responsibilitySection ?: "未设置责任段"}",
+                g.lastLon, g.lastLat,
+                if (g.lastLon != null && g.lastLat != null) "guardian" else "guardian-offline",
+                g.id, 16.0, listOf(g.name, g.phone, g.responsibilitySection), 15)
+        }
+        dangers.value.forEach { d ->
+            out += SearchRecord(
+                title = d.type.ifBlank { "危险点" },
+                subtitle = "危险点 · ${d.level} 级" + (d.towerNumber?.let { " · 杆塔 $it" } ?: ""),
+                lon = d.lon, lat = d.lat,
+                kind = "danger", refId = d.id, zoom = 17.0, priority = 20,
+                keywords = listOf(d.type, d.level, d.measure, d.remark, d.towerNumber)
+            )
+        }
+        crossings.value.forEach { c ->
+            out += SearchRecord(
+                title = c.crossObject?.takeIf { it.isNotBlank() } ?: c.crossType,
+                subtitle = "交叉跨越 · ${c.crossType}" + (c.towerNumber?.let { " · 杆塔 $it" } ?: ""),
+                lon = c.lon, lat = c.lat,
+                kind = "crossing", refId = c.id, zoom = 17.0, priority = 20,
+                keywords = listOf(c.crossType, c.crossObject, c.remark, c.towerNumber)
+            )
+        }
+
+        // 现场照片
+        photos.value.forEach { p ->
+            out += SearchRecord(
+                title = p.keywords.ifBlank { p.filePath.substringAfterLast('/') },
+                subtitle = "现场照片" + (p.remark?.let { " · $it" } ?: ""),
+                lon = p.lon, lat = p.lat,
+                kind = "photo", refId = p.id, zoom = 17.0, priority = 30,
+                keywords = listOf(p.keywords, p.remark, p.filePath)
+            )
+        }
+
+        // 自定义绘制标注
+        overlays.value.forEach { o ->
+            val p = GlobalSearch.firstCoordinate(o.geometryGeojson)
+            out += SearchRecord(o.name, "自定义标注 · ${o.type}", p?.first, p?.second,
+                "overlay", o.id, 16.0, listOf(o.name, o.type, o.extra), 25)
+        }
+
+        // 专题图层 + 专题要素（KML/KMZ/GPX/SHP/GeoJSON 导入的区域边界、巡视区等）
+        val layerById = thematicLayers.value.associateBy { it.id }
+        val featureCount = thematicFeatures.value.groupingBy { it.layerId }.eachCount()
+        val firstCoordByLayer = HashMap<String, Pair<Double, Double>>()
+        thematicFeatures.value.forEach { f ->
+            if (f.lon != null && f.lat != null && !firstCoordByLayer.containsKey(f.layerId)) {
+                firstCoordByLayer[f.layerId] = f.lon to f.lat
+            }
+        }
+        thematicLayers.value.forEach { ly ->
+            val p = firstCoordByLayer[ly.id]
+                ?: thematicFeatures.value.firstOrNull { it.layerId == ly.id }
+                    ?.let { GlobalSearch.firstCoordinate(it.geometryGeojson) }
+            out += SearchRecord(
+                title = ly.name,
+                subtitle = "专题图层 · ${GlobalSearch.geometryLabel(ly.geometryType)} · ${ly.featureCount} 个要素",
+                lon = p?.first, lat = p?.second,
+                kind = "thematic-layer", refId = ly.id, zoom = 13.0, priority = 8,
+                keywords = listOf(ly.name, ly.remark, ly.fileName, ly.sourceFormat)
+            )
+        }
+        thematicFeatures.value.forEach { f ->
+            val ly = layerById[f.layerId]
+            val composed = ThematicLabels.compose(
+                name = f.name,
+                propertiesJson = f.propertiesJson,
+                layerName = ly?.name,
+                layerRemark = ly?.remark,
+                kind = f.kind,
+                featureCount = featureCount[f.layerId] ?: 1
+            )
+            val title = composed.lineSequence().firstOrNull()?.trim().orEmpty()
+                .ifBlank { f.name?.trim().orEmpty() }
+                .ifBlank { ly?.name ?: "未命名要素" }
+            val propText = ThematicLabels.parseProps(f.propertiesJson)
+                .values.joinToString(" ") { it.take(120) }
+            val p = if (f.lon != null && f.lat != null) {
+                f.lon to f.lat
+            } else {
+                GlobalSearch.firstCoordinate(f.geometryGeojson)
+            }
+            out += SearchRecord(
+                title = title,
+                subtitle = "专题要素 · ${ly?.name ?: "自定义图层"} · ${GlobalSearch.geometryLabel(f.kind)}",
+                lon = p?.first, lat = p?.second,
+                kind = "thematic", refId = f.id,
+                zoom = if (f.kind == "point") 16.0 else 13.0, priority = 12,
+                keywords = listOf(f.name, propText, ly?.name, ly?.remark, f.kind)
+            )
+        }
+
+        // 导入批次（非地图要素，排在最后，仅提供文件名检索）
+        batches.value.forEach { b ->
+            out += SearchRecord(
+                title = b.fileName?.takeIf { it.isNotBlank() } ?: "导入批次",
+                subtitle = "导入批次 · ${b.sourceType} · ${b.towerCount} 基杆塔",
+                kind = "batch", refId = b.id, priority = 60,
+                keywords = listOf(b.fileName, b.remark, b.sourceType)
+            )
+        }
+        return out
     }
 
     fun focusHit(hit: SearchHit) {
         _searchTarget.value = hit
-        if (hit.kind == "tower" && hit.refId != null) {
-            viewModelScope.launch { _selectedTower.value = db.towerDao().getById(hit.refId) }
+        viewModelScope.launch {
+            if (hit.kind == "tower" && hit.refId != null) {
+                _selectedTower.value = db.towerDao().getById(hit.refId)
+            }
+            if (hit.lon == 0.0 && hit.lat == 0.0) {
+                _messages.emit("「${hit.title}」没有坐标，仅展示信息")
+            }
         }
     }
 

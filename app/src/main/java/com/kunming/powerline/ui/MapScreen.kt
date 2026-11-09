@@ -300,15 +300,16 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         }
     }
 
-    // 搜索结果落到地图
+    // 搜索结果落到地图（1.6.3：无坐标的结果只关闭面板，不再整段跳过）
     LaunchedEffect(target) {
         val t = target ?: return@LaunchedEffect
-        if (t.lon == 0.0 && t.lat == 0.0) return@LaunchedEffect
-        controller.easeTo(t.lon, t.lat, t.zoom)
-        controller.setFeatures(
-            LayerIds.SRC_SEARCH,
-            listOf(Feature.fromGeometry(Point.fromLngLat(t.lon, t.lat)))
-        )
+        if (t.lon != 0.0 || t.lat != 0.0) {
+            controller.easeTo(t.lon, t.lat, t.zoom)
+            controller.setFeatures(
+                LayerIds.SRC_SEARCH,
+                listOf(Feature.fromGeometry(Point.fromLngLat(t.lon, t.lat)))
+            )
+        }
         showResults = false
     }
 

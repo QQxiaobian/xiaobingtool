@@ -6,7 +6,7 @@
 台账校验、线路导入与数据同步。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.6.0（versionCode 28）
+- **当前版本**：1.6.3（versionCode 31）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt
@@ -22,7 +22,8 @@
 | 图层 | 10 个业务图层独立红/灰开关；电压分色（500kV `#D32F2F` 5dp、220kV `#1976D2` 4dp、110kV `#F57C00` 3dp、35kV `#388E3C` 2dp）；左下角图例 + 实时「N 条线路 / M 条电缆」 |
 | 专题图层 | 自定义点/线/面图层，支持 KML / KMZ / GeoJSON / SHP 导入（含行政区划图）；图层面板可改名、改备注、调透明度/线宽、控制名称显示、批量操作；要素可定位、查看详情、转线路、改所属图层 |
 | 区域标注 | 面要素名称以质心独立点标注渲染（规避 MapLibre 面要素排版失效）；要素少时强制全显、要素多时自动碰撞避让；名称按缩放分级出现，可设置起始层级；点击区域弹出信息卡显示 KML 备注与扩展属性 |
-| 搜索 | 8 种语法：杆塔（线路名+杆塔号）、地名/POI、经纬度（自动识别度分秒）、`照片` / `起飞点` / `视频` / `护线员` 前缀、杆塔模糊、收藏点、线路名 |
+| 搜索（1.6.3 全局） | 默认检索**所有图层**的数据：线路、杆塔、电缆、收藏点 / 起飞点 / 危险点 / 交叉跨越 / 视频监控 / 护线员、现场照片、自定义标注、专题图层与专题要素（KML/KMZ/GeoJSON/GPX/SHP 导入的区域边界等）、导入批次；支持空格多关键词 AND、大小写不敏感、名称 / 备注 / 属性匹配，结果标注所属图层与类型，最多 200 条。保留 8 种快捷语法：精确杆塔（线路名+杆塔号）、经纬度（自动识别度分秒）、`照片` / `起飞点` / `视频` / `护线员` / `杆塔` 前缀 |
+| 应用图标（1.6.3） | 按「猫头塔」简笔画矢量重绘：猫耳 + 圆脸 + 暖金眼嘴 + 胡须 + 输电塔格构塔身，深蓝底；全套 adaptive icon（含 monochrome 主题图标）、5 档密度 PNG、圆形图标与 512 商店图；「关于应用」页同步展示品牌图 |
 | 工具栏 | 地图截图存 `Pictures/输电巡检`、单次定位、放大/缩小、指北针（跟随旋转，点击回正北）；线路自动播放已取消 |
 | 坐标操作 | 长按地图空白处弹出坐标操作菜单（单击不做任何响应），可把该坐标设为危险点 / 护线员 / 收藏点 / 视频监控 / 起飞点 / 交叉跨越，也可高德/百度导航到此位置、重置正北；不再提供「当前位置→目标 连线测距」 |
 | 绘制 | 线/多边形/圆/矩形/文字；实时球面长度与面积；撤销/删除/暂停/保存；存 Room `custom_overlay`；导出 GeoJSON |
@@ -74,6 +75,9 @@
 - `ServerImportNamingTest`（1.4.0）：服务器文件导入的文件名命名、多条线路加序号、电压等级识别（kV / 千伏 / 数字前缀）、年份不误判、杆塔数据不丢失
 - `VoltageStatsTest`（1.5.0）：按 500/220/110/35kV 分别统计线路条数、未知等级忽略、总数守恒
 - `VersionCompareTest`（1.5.0）：检查更新的版本号比较（v 前缀、位数不等补零、预发布后缀、旧版本不误判、异常输入不崩溃）
+- `MapPointTypesTest` / `TowerVisibilityTest`（1.6.0）：坐标点位类型、电压等级筛选与杆塔点显隐联动
+- `ServerFileBrowserTest`（1.6.2）：服务器文件文件夹视图（面包屑、逐级进入返回、跨全库搜索、旧服务端无 `path` 时降级平铺）
+- `GlobalSearchTest`（1.6.3）：所有图层记录可检索、名称 / 备注 / 属性匹配、多关键词 AND、大小写不敏感、名称匹配度与有无坐标排序、去重、200 条上限、GeoJSON 首坐标解析容错
 
 ---
 
@@ -285,7 +289,7 @@ app/src/main/java/com/kunming/powerline/
 │   │   ├── ThematicInfoDialog.kt   要素信息卡（KML 备注/扩展属性）
 │   │   └── ThematicLineConverter.kt 专题线 → 线路（顶点映射杆塔号）
 │   ├── layer/                      图层枚举、图层面板（含自定义图层逐层开关）、电压图例
-│   ├── search/                     搜索栏与搜索语法说明弹窗（帮助页内调用）
+│   ├── search/                     搜索栏、结果列表（1.6.3 补齐 15 种图层类型标签）与搜索语法说明弹窗（帮助页内调用）
 │   ├── draw/                       绘制工具栏与状态机
 │   ├── importui/                   创建/导入线路全流程
 │   ├── layermanage/                各图层管理页
@@ -301,7 +305,8 @@ app/src/main/java/com/kunming/powerline/
 │   ├── common/                     通用 Compose 组件
 │   └── theme/                      配色与排版（主色 #B71C1C）
 ├── domain/                         领域模型
-└── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif
+├── util/                           坐标计算、GeoJSON 构造、文件保存、拍照 Exif；GlobalSearch（1.6.3 全局搜索内核 + GeoJSON 首坐标）
+└── res/                            mipmap-*/ic_launcher*.png、drawable/ic_launcher_{background,foreground}.xml（1.6.3 猫头塔 adaptive icon / monochrome）、ic_brand.png 品牌图
 
 nas-server/                         NAS 自建服务（Docker Compose，默认 8902 单端口，可用 .env 改）
 ├── pms/app.py                      Flask：台账 REST / 数据集 API / 原始文件库 / XYZ 瓦片
@@ -521,6 +526,7 @@ R8 已保留 MapLibre / 高德 / Moshi / Room 实体 / POI 相关类（见 `app/
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| 1.6.3 | 2026-11 | ① 应用图标改用矢量重绘的「猫头塔」形象（adaptive icon / monochrome 主题图标 / 5 档密度 PNG / 圆形图标 / 512 商店图 /「关于应用」页品牌图）；② 搜索升级为**全局搜索**，覆盖所有图层数据：新增 `GlobalSearch` 纯函数内核与 `SearchRecord` 归一化记录，`MapViewModel.doSearch` 把全部数据源拍平后统一检索，补齐危险点 / 交叉跨越 / 自定义标注 / 专题图层 / 专题要素 / 照片 / 导入批次等此前搜不到的类型；电缆与专题要素可从 GeoJSON 几何取首坐标实现定位，无坐标结果不再吞掉点击；`SearchBar` 结果标签补齐 15 种类型、帮助弹窗与内置帮助同步。新增 `GlobalSearchTest` 13 项单测，177 项单测全部通过 |
 | 1.6.2 | 2026-11 | 服务器文件库支持文件夹视图与搜索：服务端 `/api/files` 递归扫描子文件夹并返回相对路径 `path`（id 改为相对路径哈希，同名文件不同文件夹互不冲突），上传支持 `X-File-Dir` 指定子目录（自动创建、拒绝 `..`）、删除后自动清理空目录；App 新增 `ServerFileBrowser`（面包屑 / 逐级进入返回 / 跨全库搜索），搜索结果显示文件所在路径；新旧版本 App 与服务端自动兼容降级为平铺视图。修复 Werkzeug 3.x 下 raw body 上传被 `request.files` 消费导致「文件内容为空」的问题。新增 `ServerFileBrowserTest` 5 项单测 |
 | 1.6.0 | 2026-11 | 按需求：① 取消「当前位置→目标 连线测距」（删除菜单项、导航连线图层与 ViewModel 状态）；② 长按地图坐标可直接设为危险点 / 护线员 / 收藏点 / 视频监控 / 起飞点 / 交叉跨越（新增 `MapPointTypes` 与坐标操作菜单）；③ 电压等级筛选联动杆塔点、低缩放级别只显示线路（新增 `TowerVisibility`，`applyLabelZoom` 联动 `LYR_TOWER`）；④ 界面、示例数据与文档全面清除单位名称；⑤ 应用名改为「输电线路工具箱」；⑥ 删除线路漫游自动播放。新增 `MapPointTypesTest` / `TowerVisibilityTest`，159 项单测全部通过 |
 | 1.6.1 | 2026-11 | 优化：① 单击地图空白处不再弹出坐标菜单（误触频繁），仅长按弹出；② 修复搜索反馈缺失——`MapViewModel.messages` 消息流此前未在 UI 收集，搜索「未找到结果」及导入/删除/保存等提示全部不显示，现统一接入底部轻提示 |

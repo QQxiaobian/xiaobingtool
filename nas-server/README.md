@@ -22,6 +22,10 @@ App 里已经预留了两个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 > 沿用 8080 时把 `.env` 改回 `PMS_PORT=8080`，并在 App「设置 → 服务器地址」里同步即可，
 > 服务端代码无需任何改动。
 
+> **1.6.3 版本号跟随**：App 发布 1.6.3，本工程 `/health` 返回的 `version` 同步为 `1.6.3`。
+> 本次服务端**无任何功能改动**（1.6.3 只改了 App 图标与全局搜索），已部署 1.6.2 的
+> NAS 无需重新覆盖，仅健康检查里显示的版本号不同；发布包里的 `nas-server.zip` 只是保持版本一致。
+
 > 接口不是随便定的，全部对齐 App 源码：`data/remote/PmsApi.kt`、`PmsModels.kt`、
 > `ui/map/Basemap.kt`（`serverTileUrl` 会拼出 `tiles/yn_img/`、`tiles/cn_img/`、`tiles/yn_vec/`）、
 > `data/remote/model/ServerFileModels.kt`。按本工程部署即可直接连通，无需改 App 代码。

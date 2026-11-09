@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,6 +94,29 @@ fun AboutScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
+                // ---------- 品牌区（1.6.3 猫头塔图标） ----------
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(
+                            com.kunming.powerline.R.drawable.ic_brand
+                        ),
+                        contentDescription = "应用图标",
+                        modifier = Modifier.size(86.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "输电线路工具箱", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    Text(
+                        "猫头塔 · 输电线路巡检助手", fontSize = 11.sp, color = HintGray,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+
                 // ---------- 应用信息 ----------
                 InfoCard("应用信息") {
                     InfoLine("名称", context.getString(com.kunming.powerline.R.string.app_name))
