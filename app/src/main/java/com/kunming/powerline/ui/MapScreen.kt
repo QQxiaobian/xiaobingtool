@@ -669,13 +669,15 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                     scope.launch { validationIssues = vm.validateLedger() }
                 },
                 validationIssues = validationIssues,
-                onOpenHelp = { showSettings = false; showHelpDoc = true },
-                onOpenAbout = { showSettings = false; showAbout = true },
-                onOpenMapDataSettings = { showSettings = false; showMapData = true },
-                onOpenServerSettings = { showSettings = false; showServerSettings = true },
-                onOpenCustomMapSources = { showSettings = false; showCustomMapSources = true },
-                onOpenDataSync = { showSettings = false; showDataSync = true },
-                onOpenServerFiles = { showSettings = false; showServerFiles = true },
+                // 子页面覆盖在设置页之上：保留 showSettings=true，返回子页时自然露出设置页，
+                // 而不是直接回到主界面（BackHandler 中子页面判断均排在 showSettings 之前）。
+                onOpenHelp = { showHelpDoc = true },
+                onOpenAbout = { showAbout = true },
+                onOpenMapDataSettings = { showMapData = true },
+                onOpenServerSettings = { showServerSettings = true },
+                onOpenCustomMapSources = { showCustomMapSources = true },
+                onOpenDataSync = { showDataSync = true },
+                onOpenServerFiles = { showServerFiles = true },
                 onOpenGroupSettings = { navInfo = "地图组设置：按区域 / 单位分组" },
                 onBack = { showSettings = false },
                 sectionResult = sectionResult,
@@ -784,18 +786,20 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
             }
         }
         // ---------------- 使用帮助 / 关于应用（1.5.0） ----------------
-        if (showHelpDoc) {
-            Box(Modifier.fillMaxSize()) {
-                HelpScreen(onBack = { showHelpDoc = false })
-            }
-        }
+        // 声明顺序即层级：About 先声明、Help 后声明（Help 覆盖其上）。
+        // 从关于进入帮助时保留 About，返回帮助后自然露出关于页。
         if (showAbout) {
             Box(Modifier.fillMaxSize()) {
                 AboutScreen(
                     vm = vm,
                     onBack = { showAbout = false },
-                    onOpenHelp = { showAbout = false; showHelpDoc = true }
+                    onOpenHelp = { showHelpDoc = true }
                 )
+            }
+        }
+        if (showHelpDoc) {
+            Box(Modifier.fillMaxSize()) {
+                HelpScreen(onBack = { showHelpDoc = false })
             }
         }
         // ---------------- 基础地图数据设置 ----------------
