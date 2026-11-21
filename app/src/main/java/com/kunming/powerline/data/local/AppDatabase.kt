@@ -18,6 +18,7 @@ import com.kunming.powerline.data.local.entity.CableEntity
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.data.local.entity.CrossingEntity
 import com.kunming.powerline.data.local.entity.CustomOverlayEntity
+import com.kunming.powerline.data.local.entity.DangerLayerEntity
 import com.kunming.powerline.data.local.entity.DangerPointEntity
 import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
@@ -41,6 +42,7 @@ import com.kunming.powerline.data.local.entity.TrackPointEntity
         CrossingEntity::class,
         CameraEntity::class,
         GuardianEntity::class,
+        DangerLayerEntity::class,
         DangerPointEntity::class,
         FavoriteEntity::class,
         TakeoffPointEntity::class,
@@ -54,7 +56,7 @@ import com.kunming.powerline.data.local.entity.TrackPointEntity
         ThematicLayerEntity::class,
         ThematicFeatureEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -148,6 +150,54 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `online_map` ADD COLUMN `asBase` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `online_map` ADD COLUMN `attribution` TEXT")
                 db.execSQL("ALTER TABLE `online_map` ADD COLUMN `sortOrder` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v4 → v5：危险点模块重构（1.6.4）
+         *
+         * - 新增 `danger_layer`：一个导入的 CSV / 表格即一个图层，可整层显隐
+         * - `danger_point` 增加净空报告字段（杆塔区间、地物类型、净空实测距离等）
+         *
+         * 新列全部可空，老的危险点自动归为「未分组」，不影响既有数据与显示。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `danger_layer` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `fileName` TEXT,
+                        `lineName` TEXT,
+                        `visible` INTEGER NOT NULL,
+                        `featureCount` INTEGER NOT NULL,
+                        `sourceFormat` TEXT NOT NULL,
+                        `remark` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )"""
+                )
+                listOf(
+                    "`layerId` TEXT",
+                    "`seqNo` TEXT",
+                    "`towerSpan` TEXT",
+                    "`measuredAt` TEXT",
+                    "`heightM` REAL",
+                    "`spanM` REAL",
+                    "`distSmallTowerM` REAL",
+                    "`groundType` TEXT",
+                    "`horizM` REAL",
+                    "`vertM` REAL",
+                    "`clearanceM` REAL",
+                    "`defectLevel` TEXT",
+                    "`safeDistanceM` REAL",
+                    "`vegetationType` TEXT"
+                ).forEach { col ->
+                    db.execSQL("ALTER TABLE `danger_point` ADD COLUMN $col")
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_danger_point_layerId` ON `danger_point` (`layerId`)"
+                )
             }
         }
     }

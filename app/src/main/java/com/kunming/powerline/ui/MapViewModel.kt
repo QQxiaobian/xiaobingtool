@@ -9,6 +9,7 @@ import com.kunming.powerline.data.local.entity.ImportBatchEntity
 import com.kunming.powerline.data.local.entity.CableEntity
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.data.local.entity.CrossingEntity
+import com.kunming.powerline.data.local.entity.DangerLayerEntity
 import com.kunming.powerline.data.local.entity.DangerPointEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.LineEntity
@@ -28,6 +29,7 @@ import com.kunming.powerline.data.location.AmapLocationClient
 import com.kunming.powerline.data.location.FixLocation
 import com.kunming.powerline.data.parser.ImportLine
 import com.kunming.powerline.data.parser.ParseResult
+import com.kunming.powerline.data.parser.DangerImporter
 import com.kunming.powerline.data.parser.ServerImportNaming
 import com.kunming.powerline.data.prefs.ServerAddresses
 import com.kunming.powerline.data.prefs.ServerConfig
@@ -38,6 +40,7 @@ import com.kunming.powerline.data.repository.PointRepository
 import com.kunming.powerline.data.repository.ValidationIssue
 import com.kunming.powerline.ui.layer.MapLayer
 import com.kunming.powerline.ui.map.BasemapType
+import com.kunming.powerline.util.DangerFilter
 import com.kunming.powerline.util.GeoUtils
 import com.kunming.powerline.util.GlobalSearch
 import com.kunming.powerline.util.MapPointKind
@@ -106,7 +109,8 @@ class MapViewModel @Inject constructor(
     private val db: AppDatabase,
     private val customMapRepo: CustomMapSourceRepository,
     private val dataSync: DataSyncRepository,
-    private val serverFiles: ServerFileRepository
+    private val serverFiles: ServerFileRepository,
+    val dangerImporter: DangerImporter
 ) : ViewModel() {
 
     // ---------------- 数据流 ----------------
@@ -120,6 +124,9 @@ class MapViewModel @Inject constructor(
     val cameras = pointRepo.cameras.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val guardians = pointRepo.guardians.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val dangers = pointRepo.dangers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /** 1.6.4：危险点图层（一个 CSV 报告 = 一个图层） */
+    val dangerLayers: StateFlow<List<DangerLayerEntity>> =
+        pointRepo.dangerLayers.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val crossings = pointRepo.crossings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val overlays = overlayRepo.overlays.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val photos = photoRepo.photos.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -145,6 +152,14 @@ class MapViewModel @Inject constructor(
 
     private val _voltageFilter = MutableStateFlow(setOf(500, 220, 110, 35))
     val voltageFilter: StateFlow<Set<Int>> = _voltageFilter.asStateFlow()
+
+    /** 1.6.4：被单独隐藏的线路 id（电压筛选之外的第二层控制） */
+    private val _hiddenLines = MutableStateFlow<Set<String>>(emptySet())
+    val hiddenLineIds: StateFlow<Set<String>> = _hiddenLines.asStateFlow()
+
+    /** 1.6.4：危险点显示筛选（净空距离范围 + 植被/地物类型） */
+    private val _dangerFilter = MutableStateFlow(DangerFilter())
+    val dangerFilter: StateFlow<DangerFilter> = _dangerFilter.asStateFlow()
 
     private val _searchHits = MutableStateFlow<List<SearchHit>>(emptyList())
     val searchHits: StateFlow<List<SearchHit>> = _searchHits.asStateFlow()
@@ -281,6 +296,11 @@ class MapViewModel @Inject constructor(
                 if (set.isNotEmpty()) _voltageFilter.value = set
             }
         }
+        viewModelScope.launch {
+            settings.hiddenLines.collect { raw ->
+                _hiddenLines.value = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            }
+        }
         // 实时统计状态栏
         viewModelScope.launch {
             combine(myLocation, stat) { loc, s -> Triple(loc, s.first, s.second) }.collect { (loc, l, c) ->
@@ -295,7 +315,10 @@ class MapViewModel @Inject constructor(
         }
         // 数据变更触发重绘
         viewModelScope.launch {
-            combine(lines, towers, cables, favorites, takeoffs, cameras, guardians, dangers, crossings) { _ -> }
+            combine(
+                lines, towers, cables, favorites, takeoffs, cameras, guardians,
+                dangers, crossings, dangerLayers
+            ) { _ -> }
                 .collect { _layerVersion.value = System.currentTimeMillis() }
         }
         // 定位数据（真实 GPS）
@@ -359,6 +382,35 @@ class MapViewModel @Inject constructor(
         val v = if (set.isEmpty()) emptySet() else set
         _voltageFilter.value = v
         viewModelScope.launch { settings.setVoltageFilter(v.joinToString(",")) }
+        _layerVersion.value = System.currentTimeMillis()
+    }
+
+    // ------------------------------------------------------------------
+    // 单条线路显隐（1.6.4）
+    // ------------------------------------------------------------------
+    /** 切换一条线路的显示 / 隐藏（连带其杆塔，持久化到设置） */
+    fun toggleLineVisible(lineId: String) {
+        val cur = _hiddenLines.value.toMutableSet()
+        if (!cur.remove(lineId)) cur.add(lineId)
+        applyHiddenLines(cur)
+    }
+
+    fun setLineVisible(lineId: String, visible: Boolean) {
+        val cur = _hiddenLines.value.toMutableSet()
+        if (visible) cur.remove(lineId) else cur.add(lineId)
+        applyHiddenLines(cur)
+    }
+
+    /** 全部显示 / 全部隐藏 */
+    fun setAllLinesVisible(visible: Boolean) {
+        applyHiddenLines(if (visible) emptySet() else lines.value.map { it.id }.toSet())
+    }
+
+    fun isLineVisible(lineId: String): Boolean = lineId !in _hiddenLines.value
+
+    private fun applyHiddenLines(next: Set<String>) {
+        _hiddenLines.value = next
+        viewModelScope.launch { settings.setHiddenLines(next.joinToString(",")) }
         _layerVersion.value = System.currentTimeMillis()
     }
 
@@ -671,13 +723,28 @@ class MapViewModel @Inject constructor(
                 if (g.lastLon != null && g.lastLat != null) "guardian" else "guardian-offline",
                 g.id, 16.0, listOf(g.name, g.phone, g.responsibilitySection), 15)
         }
+        // 危险点：按「地物类型 + 净空距离」呈现，并纳入报告全部字段供检索
+        val dangerLayerName = dangerLayers.value.associate { it.id to it.name }
         dangers.value.forEach { d ->
+            val clear = d.clearanceM
+            val clearTxt = if (clear == null) null else String.format(java.util.Locale.US, "净空 %.2fm", clear)
             out += SearchRecord(
-                title = d.type.ifBlank { "危险点" },
-                subtitle = "危险点 · ${d.level} 级" + (d.towerNumber?.let { " · 杆塔 $it" } ?: ""),
+                title = if (clear != null) {
+                    "${d.groundType ?: d.type} ${String.format(java.util.Locale.US, "%.2f", clear)}m"
+                } else d.type.ifBlank { "危险点" },
+                subtitle = buildString {
+                    append("危险点")
+                    d.defectLevel?.let { append(" · $it") } ?: append(" · ${d.level} 级")
+                    d.towerSpan?.let { append(" · 区间 $it") }
+                    d.layerId?.let { id -> dangerLayerName[id]?.let { append(" · $it") } }
+                },
                 lon = d.lon, lat = d.lat,
                 kind = "danger", refId = d.id, zoom = 17.0, priority = 20,
-                keywords = listOf(d.type, d.level, d.measure, d.remark, d.towerNumber)
+                keywords = listOf(
+                    d.type, d.level, d.measure, d.remark, d.towerNumber,
+                    d.groundType, d.vegetationType, d.defectLevel, d.towerSpan,
+                    d.seqNo, d.measuredAt, clearTxt
+                )
             )
         }
         crossings.value.forEach { c ->
@@ -954,11 +1021,13 @@ class MapViewModel @Inject constructor(
         }
     }
 
-    // ---- 危险点 ----
+    // ------------------------------------------------------------------
+    // 危险点（1.6.4：图层化 + CSV 报告导入 + 筛选）
+    // ------------------------------------------------------------------
     fun addDanger(type: String, level: String, lon: Double, lat: Double, measure: String?) {
         viewModelScope.launch(Dispatchers.IO) {
             db.pointDao().upsertDanger(
-                com.kunming.powerline.data.local.entity.DangerPointEntity(
+                DangerPointEntity(
                     id = LineRepository.newId("D"), type = type, level = level,
                     lon = lon, lat = lat, measure = measure
                 )
@@ -971,6 +1040,114 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             db.pointDao().deleteDanger(id)
             _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    /** 图层显隐：一个 CSV 报告一层，可整层关掉 */
+    fun setDangerLayerVisible(layerId: String, visible: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            pointRepo.setDangerLayerVisible(layerId, visible)
+            _layerVersion.value = System.currentTimeMillis()
+        }
+    }
+
+    fun deleteDangerLayer(layerId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            pointRepo.deleteDangerLayer(layerId)
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit("已删除危险点图层及其全部点位")
+        }
+    }
+
+    fun setDangerFilter(f: DangerFilter) {
+        _dangerFilter.value = f
+        _layerVersion.value = System.currentTimeMillis()
+    }
+
+    fun resetDangerFilter() = setDangerFilter(DangerFilter())
+
+    /** 点击类型 chip：加入 / 移出筛选集合；空集合 = 全部 */
+    fun toggleDangerCategory(category: String) {
+        val cur = _dangerFilter.value
+        val next = if (category in cur.categories) cur.categories - category
+        else cur.categories + category
+        setDangerFilter(cur.copy(categories = next))
+    }
+
+    fun setDangerClearanceRange(min: Double?, max: Double?) {
+        setDangerFilter(_dangerFilter.value.copy(minClearance = min, maxClearance = max))
+    }
+
+    /**
+     * 导入净空危险点报告（CSV / 表格）。
+     *
+     * 每个文件生成一个危险点图层；同名图层重复导入时覆盖旧点位而不是叠加，
+     * 避免同一份周报导两次出现双份点。
+     */
+    fun importDangerCsv(uris: List<Uri>, onDone: (String) -> Unit) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val msg = withContext(Dispatchers.IO) {
+                var files = 0
+                var points = 0
+                var failedRows = 0
+                val failures = mutableListOf<String>()
+                val existingLayers = pointRepo.dangerLayersOnce().associateBy { it.name }
+                val allLines = lines.value
+
+                uris.forEach { uri ->
+                    dangerImporter.load(uri).fold(
+                        onSuccess = { loaded ->
+                            val records = loaded.result.records
+                            if (records.isEmpty()) {
+                                failures += "${loaded.fileName}：未识别到有效行"
+                                return@fold
+                            }
+                            val layerId = existingLayers[loaded.layerName]?.id
+                                ?: LineRepository.newId("DL")
+                            val guess = dangerImporter.guessLineName(loaded.fileName)
+                            val line = allLines.firstOrNull { it.name == guess }
+                                ?: allLines.firstOrNull { loaded.fileName.contains(it.name) }
+                            val n = pointRepo.saveDangerLayer(
+                                layerId = layerId,
+                                layer = DangerLayerEntity(
+                                    id = layerId,
+                                    name = loaded.layerName,
+                                    fileName = loaded.fileName,
+                                    lineName = line?.name ?: guess
+                                ),
+                                records = records,
+                                lineId = line?.id,
+                                remark = buildString {
+                                    append("${records.size} 条")
+                                    if (guess != null) append(" · $guess")
+                                    if (loaded.result.encoding != "UTF-8") append(" · ${loaded.result.encoding}")
+                                }
+                            )
+                            files++
+                            points += n
+                            failedRows += loaded.result.errors.size
+                        },
+                        onFailure = { e -> failures += "${uri.lastPathSegment}：${e.message ?: "读取失败"}" }
+                    )
+                }
+
+                buildString {
+                    if (files > 0) {
+                        append("已导入 $files 个报告，共 $points 个危险点")
+                        if (failedRows > 0) append("；跳过 $failedRows 行无效数据")
+                    } else {
+                        append("未能导入任何危险点")
+                    }
+                    if (failures.isNotEmpty()) {
+                        if (isNotEmpty()) append("\n")
+                        append(failures.take(3).joinToString("\n"))
+                    }
+                }
+            }
+            _layerVersion.value = System.currentTimeMillis()
+            _messages.emit(msg)
+            onDone(msg)
         }
     }
 

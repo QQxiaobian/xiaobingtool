@@ -11,11 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kunming.powerline.ui.MapViewModel
 import com.kunming.powerline.ui.theme.LightPanelTheme
 import com.kunming.powerline.ui.theme.PowerRed
@@ -51,6 +55,8 @@ fun LineListScreen(
     val lines = vm.lines.value
     val towers = vm.towers.value
     val filter = vm.voltageFilter.value
+    // 1.6.4：单条线路显隐
+    val hiddenIds by vm.hiddenLineIds.collectAsStateWithLifecycle()
     var keyword by remember { mutableStateOf("") }
     // 当前正在编辑的线路（非空时显示编辑页）
     var editingLineId by remember { mutableStateOf<String?>(null) }
@@ -139,6 +145,30 @@ fun LineListScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
+        // ---- 1.6.4：显示 / 隐藏全部线路 ----
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "显示全部", fontSize = 11.5.sp, color = PowerRed,
+                modifier = Modifier.clickable { vm.setAllLinesVisible(true) }
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
+            )
+            Spacer(Modifier.width(14.dp))
+            Text(
+                "隐藏全部", fontSize = 11.5.sp, color = Color(0xFF8A8078),
+                modifier = Modifier.clickable { vm.setAllLinesVisible(false) }
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (hiddenIds.isEmpty()) "点击眼睛图标可单独隐藏线路"
+                else "已隐藏 ${hiddenIds.size} 条",
+                fontSize = 10.5.sp, color = Color(0xFFA99E94)
+            )
+        }
+
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -173,15 +203,17 @@ fun LineListScreen(
                 items(shown, key = { it.id }) { line ->
                     val cnt = towers.count { it.lineId == line.id }
                     val color = Color(android.graphics.Color.parseColor(VoltagePalette.hexColorOf(line.voltageLevel)))
+                    val lineVisible = line.id !in hiddenIds
                     // 注意：外层不要用 Row + weight(1f)，否则 ManageRow 内部的 fillMaxWidth
                     // 会被水平权重压成 0 宽，整行"消失"（v1.0.6 列表空白的根因）
                     Box(Modifier.fillMaxWidth()) {
                         ManageRow(
-                            modifier = Modifier.padding(end = if (selectionMode) 8.dp else 56.dp),
+                            modifier = Modifier.padding(end = if (selectionMode) 8.dp else 88.dp),
                             title = line.name,
                             subtitle = "${VoltagePalette.labelOf(line.voltageLevel)} · ${cnt} 基杆塔" +
-                                if (line.isEmptyLine) " · 空线路" else "",
-                            leadingColor = color,
+                                (if (line.isEmptyLine) " · 空线路" else "") +
+                                (if (!lineVisible) " · 已隐藏" else ""),
+                            leadingColor = if (lineVisible) color else Color(0xFFC9BDB2),
                             trailing = if (selectionMode) null else "定位 ›",
                             checked = if (selectionMode) line.id in selected else null,
                             onCheckedChange = { toggle(line.id) },
@@ -204,16 +236,31 @@ fun LineListScreen(
                             })
                         )
                         if (!selectionMode) {
-                            Text(
-                                "编辑",
-                                fontSize = 12.sp,
-                                color = PowerRed,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .clickable { editingLineId = line.id }
-                                    .padding(horizontal = 18.dp, vertical = 10.dp)
-                            )
+                            Row(
+                                Modifier.align(Alignment.CenterEnd),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { vm.toggleLineVisible(line.id) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        if (lineVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                        contentDescription = if (lineVisible) "隐藏该线路" else "显示该线路",
+                                        tint = if (lineVisible) PowerRed else Color(0xFFB0A598),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Text(
+                                    "编辑",
+                                    fontSize = 12.sp,
+                                    color = PowerRed,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable { editingLineId = line.id }
+                                        .padding(horizontal = 6.dp, vertical = 10.dp)
+                                )
+                            }
                         }
                     }
                 }

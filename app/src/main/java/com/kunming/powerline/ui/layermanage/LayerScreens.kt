@@ -463,70 +463,8 @@ fun GuardianManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String)
 }
 
 // ----------------------------------------------------------------------------
-// 危险点
+// 危险点：1.6.4 起独立到 DangerScreens.kt（图层化 + CSV 导入 + 筛选）
 // ----------------------------------------------------------------------------
-@Composable
-fun DangerManageScreen(vm: MapViewModel, onBack: () -> Unit, onToast: (String) -> Unit, onFocus: (Double, Double, Double) -> Unit) {
-    val list = vm.dangers.value
-    var adding by remember { mutableStateOf(false) }
-    var type by remember { mutableStateOf("") }
-    var level by remember { mutableStateOf("Ⅱ") }
-    var lon by remember { mutableStateOf("") }
-    var lat by remember { mutableStateOf("") }
-    var measure by remember { mutableStateOf("") }
-    var editing by remember { mutableStateOf<DangerPointEntity?>(null) }
-
-    ManageScaffold("危险点图层", "共 ${list.size} 处危险点", onBack) {
-        GeoImportBar(vm, setOf("point")) { fs -> onToast(vm.importPointsTo("danger", fs)) }
-        if (adding) {
-            Box(Modifier.padding(12.dp)) {
-                AddSheet("新增危险点", type.isNotBlank() && lon.toDoubleOrNull() != null && lat.toDoubleOrNull() != null, { adding = false }, {
-                    vm.addDanger(type, level.ifBlank { "Ⅱ" }, lon.toDouble(), lat.toDouble(), measure.ifBlank { null })
-                    onToast("已添加危险点「$type」")
-                    adding = false; type = ""; lon = ""; lat = ""; measure = ""
-                }) {
-                    ManageField("类型（施工/树障/交叉/外破）", type) { type = it }
-                    ManageField("等级 Ⅰ / Ⅱ / Ⅲ", level) { level = it }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.weight(1f)) { ManageField("经度", lon, numeric = true) { lon = it } }
-                        Box(Modifier.weight(1f)) { ManageField("纬度", lat, numeric = true) { lat = it } }
-                    }
-                    ManageField("防控措施", measure) { measure = it }
-                }
-            }
-        }
-        AddBar("新增危险点", { adding = true })
-        if (list.isEmpty()) EmptyHint("暂无危险点") else
-            LazyColumn(Modifier.weight(1f)) {
-                items(list, key = { it.id }) { d ->
-                    val c = when (d.level) {
-                        "Ⅰ", "1" -> Color(0xFFD32F2F)
-                        "Ⅱ", "2" -> Color(0xFFF57C00)
-                        else -> Color(0xFFFBC02D)
-                    }
-                    ManageRow(
-                        title = "${d.type}（${d.level} 级）",
-                        subtitle = d.measure ?: "未填写防控措施",
-                        leadingColor = c,
-                        trailing = "定位 ›",
-                        onClick = { onFocus(d.lon, d.lat, 16.0) },
-                        onEdit = { editing = d },
-                        onDelete = { vm.deleteDanger(d.id); onToast("已删除") }
-                    )
-                }
-            }
-        editing?.let { d ->
-            EntityEditDialog(
-                "编辑危险点", d.type, d.lon, d.lat, d.measure,
-                nameLabel = "类型", noteLabel = "防控措施", onDismiss = { editing = null }
-            ) { n, lo, la, note ->
-                vm.saveDanger(d.copy(type = n, lon = lo, lat = la, measure = note))
-                editing = null
-                onToast("已保存「$n」")
-            }
-        }
-    }
-}
 
 // ----------------------------------------------------------------------------
 // 自定义图层

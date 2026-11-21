@@ -12,6 +12,7 @@ import com.kunming.powerline.data.local.entity.CableEntity
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.data.local.entity.CrossingEntity
 import com.kunming.powerline.data.local.entity.CustomOverlayEntity
+import com.kunming.powerline.data.local.entity.DangerLayerEntity
 import com.kunming.powerline.data.local.entity.DangerPointEntity
 import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
@@ -192,15 +193,39 @@ interface PointDao {
     @Query("UPDATE guardian SET lastLon = :lon, lastLat = :lat, updatedAt = :ts WHERE id = :id")
     suspend fun updateGuardianPosition(id: String, lon: Double, lat: Double, ts: Long)
 
+    // ---- 危险点图层（1.6.4：一个 CSV / 表格 = 一个图层） ----
+    @Query("SELECT * FROM danger_layer ORDER BY createdAt DESC")
+    fun observeDangerLayers(): Flow<List<DangerLayerEntity>>
+
+    @Query("SELECT * FROM danger_layer ORDER BY createdAt DESC")
+    suspend fun getDangerLayers(): List<DangerLayerEntity>
+
+    @Upsert suspend fun upsertDangerLayer(l: DangerLayerEntity)
+
+    @Query("UPDATE danger_layer SET visible = :visible WHERE id = :id")
+    suspend fun setDangerLayerVisible(id: String, visible: Boolean)
+
+    @Query("DELETE FROM danger_layer WHERE id = :id")
+    suspend fun deleteDangerLayer(id: String)
+
+    @Query("DELETE FROM danger_point WHERE layerId = :layerId")
+    suspend fun deleteDangersByLayer(layerId: String)
+
     // ---- 危险点 ----
-    @Query("SELECT * FROM danger_point")
+    @Query("SELECT * FROM danger_point ORDER BY layerId, clearanceM")
     fun observeDangers(): Flow<List<DangerPointEntity>>
 
-    @Query("SELECT * FROM danger_point")
+    @Query("SELECT * FROM danger_point ORDER BY layerId, clearanceM")
     suspend fun getDangers(): List<DangerPointEntity>
 
     @Upsert suspend fun upsertDanger(d: DangerPointEntity)
+
+    @Upsert suspend fun upsertDangers(list: List<DangerPointEntity>)
+
     @Query("DELETE FROM danger_point WHERE id = :id") suspend fun deleteDanger(id: String)
+
+    @Query("SELECT * FROM danger_point WHERE layerId = :layerId")
+    suspend fun getDangersByLayer(layerId: String): List<DangerPointEntity>
 
     // ---- 交叉跨越 ----
     @Query("SELECT * FROM crossing")

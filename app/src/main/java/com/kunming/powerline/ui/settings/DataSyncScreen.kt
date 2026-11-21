@@ -158,7 +158,9 @@ fun DataSyncScreen(vm: MapViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(14.dp))
                 SectionTitle("全部线路 / 图层 导出与导入")
                 Text(
-                    "一键导出本机全部图层、线路与杆塔，无需填名称或选类型。" +
+                    "一键导出本机全部数据，无需填名称或选类型：专题图层、线路与杆塔、" +
+                        "收藏点、危险点（含净空报告图层）、护线员、视频监控、起飞点、" +
+                        "交叉跨越、电缆、自定义标注。" +
                         "「备份 JSON」可无损导回本 App；「GeoJSON」用于 QGIS / Google Earth 等外部系统。",
                     fontSize = 11.sp, color = Color(0xFF5C544A), lineHeight = 17.sp
                 )
@@ -281,7 +283,8 @@ fun DataSyncScreen(vm: MapViewModel, onBack: () -> Unit) {
                             Text(d.name, fontSize = 12.5.sp, color = Color(0xFF2B2B2B), fontWeight = FontWeight.Medium)
                             Text(
                                 "${kindLabel(d.kind)} · ${d.layerCount} 图层 / ${d.featureCount} 要素 / " +
-                                    "${d.lineCount} 线路 / ${d.towerCount} 杆塔",
+                                    "${d.lineCount} 线路 / ${d.towerCount} 杆塔" +
+                                    if (d.pointCount > 0) " / ${d.pointCount} 点位" else "",
                                 fontSize = 10.5.sp, color = HintGray, lineHeight = 16.sp
                             )
                             Text(

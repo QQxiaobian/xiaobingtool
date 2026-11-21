@@ -13,6 +13,8 @@ import com.kunming.powerline.data.remote.model.DatasetBundleDto
 import com.kunming.powerline.data.remote.model.DatasetFeatureDto
 import com.kunming.powerline.data.remote.model.DatasetLayerDto
 import com.kunming.powerline.data.remote.model.DatasetMetaDto
+import com.kunming.powerline.data.remote.model.DatasetPointMappers
+import com.kunming.powerline.data.remote.model.DatasetPointsDto
 import com.kunming.powerline.data.remote.model.DatasetStats
 import com.kunming.powerline.data.remote.model.PmsLedgerBundle
 import com.kunming.powerline.data.remote.model.PmsLineDto
@@ -123,6 +125,25 @@ class DataSyncRepository @Inject constructor(
                 )
             } else PmsLedgerBundle()
 
+            val points = if (includeLayers) {
+                val lineNameById = db.lineDao().getAll().associate { it.id to it.name }
+                DatasetPointsDto(
+                    favorites = db.pointDao().getFavorites().map(DatasetPointMappers::favorite),
+                    takeoffs = db.pointDao().getTakeoffs().map(DatasetPointMappers::takeoff),
+                    cameras = db.pointDao().getCameras().map(DatasetPointMappers::camera),
+                    guardians = db.pointDao().getGuardians().map(DatasetPointMappers::guardian),
+                    dangerLayers = db.pointDao().getDangerLayers().map(DatasetPointMappers::dangerLayer),
+                    dangers = db.pointDao().getDangers().map { d ->
+                        DatasetPointMappers.danger(d, d.lineId?.let(lineNameById::get))
+                    },
+                    crossings = db.pointDao().getCrossings().map { c ->
+                        DatasetPointMappers.crossing(c, c.lineId?.let(lineNameById::get))
+                    },
+                    cables = db.cableDao().getAllOnce().map(DatasetPointMappers::cable),
+                    overlays = db.overlayDao().getAll().map(DatasetPointMappers::overlay)
+                )
+            } else DatasetPointsDto()
+
             DatasetBundleDto(
                 id = newId("DS"),
                 name = name.trim(),
@@ -131,7 +152,8 @@ class DataSyncRepository @Inject constructor(
                 updatedAt = now(),
                 note = "由 App ${DatasetBundleDto.SCHEMA} 导出",
                 layers = layerDtos,
-                ledger = ledger
+                ledger = ledger,
+                points = points
             )
         }
 
@@ -302,6 +324,72 @@ class DataSyncRepository @Inject constructor(
             }
         }
 
-        "$layerCount 个图层 / $featureCount 个要素 / $lineCount 条线路 / $towerCount 基杆塔"
+        // ---------------- 点位类数据（1.6.4：收藏夹 / 危险点 / 护线员 …） ----------------
+        val pd = db.pointDao()
+        val lineIdByName = db.lineDao().getAll().associate { it.name to it.id }
+        var pointCount = 0
+
+        b.points.favorites.forEach { dto ->
+            pd.upsertFavorite(DatasetPointMappers.favorite(dto.copy(id = dto.id.ifBlank { newId("FV") })))
+            pointCount++
+        }
+        b.points.takeoffs.forEach { dto ->
+            pd.upsertTakeoff(DatasetPointMappers.takeoff(dto.copy(id = dto.id.ifBlank { newId("TK") })))
+            pointCount++
+        }
+        b.points.cameras.forEach { dto ->
+            pd.upsertCamera(DatasetPointMappers.camera(dto.copy(id = dto.id.ifBlank { newId("CM") })))
+            pointCount++
+        }
+        b.points.guardians.forEach { dto ->
+            pd.upsertGuardian(DatasetPointMappers.guardian(dto.copy(id = dto.id.ifBlank { newId("GD") })))
+            pointCount++
+        }
+        // 危险点图层先落库，再写点，保证 UI 能按层分组
+        val dangerLayerIdMap = mutableMapOf<String, String>()
+        b.points.dangerLayers.forEach { dto ->
+            val newLayerId = dto.id.ifBlank { newId("DL") }
+            val own = b.points.dangers.count { it.layerId == dto.id }
+            dangerLayerIdMap[dto.id] = newLayerId
+            pd.upsertDangerLayer(
+                DatasetPointMappers.dangerLayer(dto.copy(id = newLayerId))
+                    .copy(featureCount = own)
+            )
+        }
+        b.points.dangers.forEach { dto ->
+            val mappedLayer = dto.layerId?.let { dangerLayerIdMap[it] ?: it }
+            pd.upsertDanger(
+                DatasetPointMappers.danger(
+                    dto.copy(id = dto.id.ifBlank { newId("DG") }, layerId = mappedLayer),
+                    dto.lineName?.let(lineIdByName::get)
+                )
+            )
+            pointCount++
+        }
+        b.points.crossings.forEach { dto ->
+            pd.upsertCrossing(
+                DatasetPointMappers.crossing(
+                    dto.copy(id = dto.id.ifBlank { newId("CR") }),
+                    dto.lineName?.let(lineIdByName::get)
+                )
+            )
+            pointCount++
+        }
+        b.points.cables.forEach { dto ->
+            if (dto.geometryGeojson.isNotBlank()) {
+                db.cableDao().upsert(DatasetPointMappers.cable(dto.copy(id = dto.id.ifBlank { newId("CB") })))
+                pointCount++
+            }
+        }
+        b.points.overlays.forEach { dto ->
+            if (dto.geometryGeojson.isNotBlank()) {
+                db.overlayDao().upsert(DatasetPointMappers.overlay(dto.copy(id = dto.id.ifBlank { newId("OV") })))
+                pointCount++
+            }
+        }
+
+        val base = "$layerCount 个图层 / $featureCount 个要素 / $lineCount 条线路 / $towerCount 基杆塔"
+        if (pointCount == 0 && b.points.dangerLayers.isEmpty()) base
+        else "$base / $pointCount 个点位（${b.points.summary()}）"
     }
 }

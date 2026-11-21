@@ -191,7 +191,7 @@ def health():
 
     return jsonify({
         "service": "powerline-nas-server",
-        "version": "1.6.3",
+        "version": "1.6.4",
         "pmsLines": nl,
         "pmsTowers": nt,
         "datasets": nd,
@@ -341,11 +341,15 @@ def push_ledger():
 def dataset_counts(body):
     layers = body.get("layers") or []
     ledger = body.get("ledger") or {}
+    points = body.get("points") or {}
+    # 1.6.4：points 下每个键是一类点位的数组（收藏 / 危险点 / 护线员 …）
+    npoints = sum(len(v) for v in points.values() if isinstance(v, list))
     return (
         len(layers),
         sum(len(x.get("features") or []) for x in layers),
         len(ledger.get("lines") or []),
         len(ledger.get("towers") or []),
+        npoints,
     )
 
 
@@ -355,7 +359,7 @@ def save_dataset(body):
     if "/" in name or "\\" in name:
         return {"success": False, "message": "名称不能包含路径分隔符", "count": 0}
     payload = json.dumps(body, ensure_ascii=False, separators=(",", ":"))
-    nl, nf, nlines, ntowers = dataset_counts(body)
+    nl, nf, nlines, ntowers, npoints = dataset_counts(body)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     with db() as c:
         old = c.execute("SELECT version FROM datasets WHERE id=?", (dsid,)).fetchone()
@@ -375,19 +379,25 @@ def save_dataset(body):
         "success": True, "message": "数据集已同步", "count": nl + nlines,
         "id": dsid, "version": version, "name": name,
         "layers": nl, "features": nf, "lines": nlines, "towers": ntowers,
+        "points": npoints,
     }
 
 
 def dataset_row(r):
     try:
-        note = json.loads(r["payload"]).get("note")
+        body = json.loads(r["payload"])
+        note = body.get("note")
+        points = body.get("points") or {}
+        npoints = sum(len(v) for v in points.values() if isinstance(v, list))
     except Exception:
         note = None
+        npoints = 0
     return {
         "id": r["id"], "name": r["name"], "kind": r["kind"],
         "version": r["version"], "updatedAt": r["updated_at"],
         "layerCount": r["layer_count"], "featureCount": r["feature_count"],
         "lineCount": r["line_count"], "towerCount": r["tower_count"],
+        "pointCount": npoints,
         "sizeBytes": r["size_bytes"], "note": note,
     }
 

@@ -31,6 +31,8 @@ class SettingsStore @Inject constructor(private val context: Context) {
         val OFFLINE_MODE = booleanPreferencesKey("offline_mode")
         val GROUP_ID = intPreferencesKey("current_group")
         val LABEL_ZOOM = floatPreferencesKey("label_min_zoom")
+        /** 1.6.4：被隐藏的线路 id（逗号分隔），空 = 全部显示 */
+        val HIDDEN_LINES = stringPreferencesKey("hidden_line_ids")
         // 运行时服务器地址覆盖（空串 = 使用编译期 buildConfigField 默认值）
         val SERVER_PMS = stringPreferencesKey("server_pms_base")
         val SERVER_TILES = stringPreferencesKey("server_tile_url")
@@ -54,6 +56,8 @@ class SettingsStore @Inject constructor(private val context: Context) {
     val groupId: Flow<Int> = prefs.map { it[Keys.GROUP_ID] ?: -1 }
     /** 名称（线路名 / 区域名 / 杆塔号）开始显示的缩放级别 */
     val labelZoom: Flow<Float> = prefs.map { it[Keys.LABEL_ZOOM] ?: 11f }
+    /** 1.6.4：被单独隐藏的线路 id */
+    val hiddenLines: Flow<String> = prefs.map { it[Keys.HIDDEN_LINES] ?: "" }
     /** 运行时服务器地址覆盖；两项均为空表示用编译期默认 */
     val serverAddresses: Flow<ServerOverride> = prefs.map {
         ServerOverride(
@@ -71,6 +75,7 @@ class SettingsStore @Inject constructor(private val context: Context) {
     suspend fun setVoltageFilter(v: String) = context.dataStore.edit { it[Keys.VOLTAGE_FILTER] = v }
     suspend fun setGroupId(v: Int) = context.dataStore.edit { it[Keys.GROUP_ID] = v }
     suspend fun setLabelZoom(v: Float) = context.dataStore.edit { it[Keys.LABEL_ZOOM] = v.coerceIn(6f, 17f) }
+    suspend fun setHiddenLines(v: String) = context.dataStore.edit { it[Keys.HIDDEN_LINES] = v }
     suspend fun setServerAddresses(o: ServerOverride) = context.dataStore.edit {
         it[Keys.SERVER_PMS] = o.pms
         it[Keys.SERVER_TILES] = o.tiles

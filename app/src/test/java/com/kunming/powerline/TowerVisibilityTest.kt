@@ -55,4 +55,21 @@ class TowerVisibilityTest {
         assertEquals(500, TowerVisibility.voltageOf(lineMap, tower("T1", "L1")))
         assertEquals(35, TowerVisibility.voltageOf(lineMap, tower("T2", "L2")))
     }
+
+    @Test
+    fun `单条线路隐藏后其杆塔一起消失`() {
+        val lines = listOf(line("L1", 220), line("L2", 110))
+        val towers = listOf(tower("T1", "L1"), tower("T2", "L2"), tower("T3", "L1"))
+        val got = TowerVisibility.filter(towers, lines, setOf(220, 110), hiddenLineIds = setOf("L1"))
+        assertEquals(listOf("T2"), got.map { it.id })
+    }
+
+    @Test
+    fun `隐藏线路不会因默认电压兜底而残留杆塔`() {
+        // 线路已被上层过滤掉时 lineMap 里没有它，旧实现会兜底成 110 而误显示
+        val lines = listOf(line("L2", 110))
+        val towers = listOf(tower("T1", "L1"), tower("T2", "L2"))
+        val got = TowerVisibility.filter(towers, lines, setOf(110), hiddenLineIds = setOf("L1"))
+        assertEquals(listOf("T2"), got.map { it.id })
+    }
 }

@@ -22,9 +22,15 @@ App 里已经预留了两个地址（`app/build.gradle.kts` 的 `buildConfigFiel
 > 沿用 8080 时把 `.env` 改回 `PMS_PORT=8080`，并在 App「设置 → 服务器地址」里同步即可，
 > 服务端代码无需任何改动。
 
-> **1.6.3 版本号跟随**：App 发布 1.6.3，本工程 `/health` 返回的 `version` 同步为 `1.6.3`。
-> 本次服务端**无任何功能改动**（1.6.3 只改了 App 图标与全局搜索），已部署 1.6.2 的
-> NAS 无需重新覆盖，仅健康检查里显示的版本号不同；发布包里的 `nas-server.zip` 只是保持版本一致。
+> **1.6.4 版本号跟随 + 数据集点位统计**：App 发布 1.6.4，本工程 `/health` 返回的 `version`
+> 同步为 `1.6.4`。本次服务端只有一处小改：`/api/datasets` 列表的每项新增 `pointCount`
+> （从已存储 payload 的 `points` 段统计，不新增数据库列），用于 App「数据同步」页显示点位数量。
+>
+> 数据集 payload 一直是原样存储的，所以**即使不升级 NAS**，新 App 上传的收藏夹 / 危险点等
+> 点位数据也能完整收发，只是列表里看不到「N 点位」。想让统计生效，替换 `pms/app.py` 后
+> `docker compose restart` 即可，无需迁移数据。
+>
+> （历史）1.6.3 只改 App 图标与全局搜索，服务端无功能改动，已部署 1.6.2 的 NAS 无需覆盖。
 
 > 接口不是随便定的，全部对齐 App 源码：`data/remote/PmsApi.kt`、`PmsModels.kt`、
 > `ui/map/Basemap.kt`（`serverTileUrl` 会拼出 `tiles/yn_img/`、`tiles/cn_img/`、`tiles/yn_vec/`）、

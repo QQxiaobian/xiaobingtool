@@ -27,7 +27,13 @@ object GeoJsonExporter {
         val features = b.layers.sumOf { l ->
             l.features.count { it.geometryGeojson.trim().let { g -> g.startsWith("{") && g.endsWith("}") } }
         }
-        return lineStrings + towers + features
+        val p = b.points
+        val points = p.favorites.size + p.takeoffs.size + p.cameras.size +
+            p.guardians.count { it.lon != null && it.lat != null } +
+            p.dangers.size + p.crossings.count { it.lon != null && it.lat != null } +
+            p.cables.count { it.geometryGeojson.trim().startsWith("{") } +
+            p.overlays.count { it.geometryGeojson.trim().startsWith("{") }
+        return lineStrings + towers + features + points
     }
 
     fun export(b: DatasetBundleDto): String {
@@ -103,6 +109,83 @@ object GeoJsonExporter {
                 sb.append(q("attrs")).append(':').append(q(f.propertiesJson))
                 sb.append("}}")
             }
+        }
+
+        // 4) 业务点位（1.6.4：收藏夹 / 起飞点 / 监控 / 护线员 / 危险点 / 交叉跨越）
+        fun point(lon: Double?, lat: Double?, vararg kv: Pair<String, Any?>) {
+            if (lon == null || lat == null) return
+            sep()
+            sb.append("{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\",\"coordinates\":[")
+            sb.append(n(lon)).append(',').append(n(lat))
+            sb.append("]},\"properties\":")
+            props(*kv)
+            sb.append('}')
+        }
+
+        b.points.favorites.forEach { f ->
+            point(f.lon, f.lat,
+                "type" to "favorite", "name" to f.name, "category" to f.category, "note" to f.note)
+        }
+        b.points.takeoffs.forEach { t ->
+            point(t.lon, t.lat,
+                "type" to "takeoff", "name" to t.name, "altitude" to t.altitude, "note" to t.note)
+        }
+        b.points.cameras.forEach { c ->
+            point(c.lon, c.lat,
+                "type" to "camera", "name" to c.name, "status" to c.status, "rtsp" to c.rtspUrl)
+        }
+        b.points.guardians.forEach { g ->
+            point(g.lon, g.lat,
+                "type" to "guardian", "name" to g.name, "phone" to g.phone, "section" to g.section)
+        }
+        b.points.dangers.forEach { d ->
+            point(
+                d.lon, d.lat,
+                "type" to "danger",
+                "name" to (d.groundType ?: d.vegetationType ?: d.type),
+                "layer" to d.layerId,
+                "line" to d.lineName,
+                "tower_span" to d.towerSpan,
+                "measured_at" to d.measuredAt,
+                "ground_type" to d.groundType,
+                "vegetation_type" to d.vegetationType,
+                "clearance_m" to d.clearanceM,
+                "safe_distance_m" to d.safeDistanceM,
+                "horiz_m" to d.horizM,
+                "vert_m" to d.vertM,
+                "height_m" to d.heightM,
+                "span_m" to d.spanM,
+                "from_small_tower_m" to d.distSmallTowerM,
+                "defect_level" to (d.defectLevel ?: d.level)
+            )
+        }
+        b.points.crossings.forEach { c ->
+            point(
+                c.lon, c.lat,
+                "type" to "crossing", "line" to c.lineName, "cross_type" to c.crossType,
+                "cross_object" to c.crossObject, "distance" to c.distance, "tower_number" to c.towerNumber
+            )
+        }
+        // 电缆 / 自定义标注带几何原文
+        b.points.cables.forEach { c ->
+            val g = c.geometryGeojson.trim()
+            if (!g.startsWith("{") || !g.endsWith("}")) return@forEach
+            sep()
+            sb.append("{\"type\":\"Feature\",\"geometry\":").append(g).append(",\"properties\":")
+            props(
+                "type" to "cable", "name" to c.name, "voltage" to c.voltageLevel,
+                "start_node" to c.startNode, "end_node" to c.endNode,
+                "length_m" to c.lengthMeter, "remark" to c.remark
+            )
+            sb.append('}')
+        }
+        b.points.overlays.forEach { o ->
+            val g = o.geometryGeojson.trim()
+            if (!g.startsWith("{") || !g.endsWith("}")) return@forEach
+            sep()
+            sb.append("{\"type\":\"Feature\",\"geometry\":").append(g).append(",\"properties\":")
+            props("type" to "overlay", "name" to o.name, "shape" to o.type, "extra" to o.extra)
+            sb.append('}')
         }
 
         sb.append("]}")

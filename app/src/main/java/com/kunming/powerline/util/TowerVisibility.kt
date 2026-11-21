@@ -21,10 +21,14 @@ object TowerVisibility {
     fun filter(
         towers: List<TowerEntity>,
         lines: List<LineEntity>,
-        voltageFilter: Set<Int>
+        voltageFilter: Set<Int>,
+        /** 1.6.4：被单独隐藏的线路，其杆塔必须一起消失 */
+        hiddenLineIds: Set<String> = emptySet()
     ): List<TowerEntity> {
         if (voltageFilter.isEmpty()) return emptyList()
         val lineMap = lines.associateBy { it.id }
-        return towers.filter { voltageOf(lineMap, it) in voltageFilter }
+        return towers.filter {
+            it.lineId !in hiddenLineIds && voltageOf(lineMap, it) in voltageFilter
+        }
     }
 }

@@ -115,6 +115,9 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     val cameras by vm.cameras.collectAsStateWithLifecycle()
     val guardians by vm.guardians.collectAsStateWithLifecycle()
     val dangers by vm.dangers.collectAsStateWithLifecycle()
+    val dangerLayers by vm.dangerLayers.collectAsStateWithLifecycle()
+    val dangerFilter by vm.dangerFilter.collectAsStateWithLifecycle()
+    val hiddenLineIds by vm.hiddenLineIds.collectAsStateWithLifecycle()
     val crossings by vm.crossings.collectAsStateWithLifecycle()
     val overlays by vm.overlays.collectAsStateWithLifecycle()
     val thematicLayers by vm.thematicLayers.collectAsStateWithLifecycle()
@@ -207,7 +210,10 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
     }
 
     // 同步数据 -> 地图
-    LaunchedEffect(layerVersion, controller.ready, textSize, labelZoom, voltageFilter, selectedTower?.id) {
+    LaunchedEffect(
+        layerVersion, controller.ready, textSize, labelZoom, voltageFilter,
+        selectedTower?.id, hiddenLineIds, dangerLayers, dangerFilter
+    ) {
         if (controller.ready) {
             LayerRenderer.renderAll(
                 ctrl = controller,
@@ -222,7 +228,10 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 voltageFilter = voltageFilter,
                 textSize = textSize,
                 selectedTowerId = selectedTower?.id,
-                labelZoom = labelZoom
+                labelZoom = labelZoom,
+                hiddenLineIds = hiddenLineIds,
+                dangerLayers = dangerLayers,
+                dangerFilter = dangerFilter
             )
         }
     }
@@ -371,7 +380,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                             }
                             fid != null && dangers.any { it.id == fid } -> {
                                 val d = dangers.first { it.id == fid }
-                                navInfo = "危险点：${d.type}（${d.level}级）\n措施：${d.measure ?: "—"}"
+                                navInfo = com.kunming.powerline.util.DangerText.detail(d)
                             }
                             fid != null && guardians.any { it.id == fid } -> {
                                 val g = guardians.first { it.id == fid }

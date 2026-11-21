@@ -458,6 +458,26 @@ class MapController {
                 PropertyFactory.iconAllowOverlap(true),
             )
         )
+        // 危险点标注（1.6.4）：巡检最先要看的是「什么地物、净空多少」，
+        // 因此单独成层并在 10 级就显示，不受通用点位文字的 12 级限制。
+        val dangerLabelLayer = SymbolLayer(LayerIds.LYR_DANGER_LABEL, LayerIds.SRC_DANGER)
+        dangerLabelLayer.withProperties(
+            PropertyFactory.textField(
+                Expression.coalesce(Expression.get("label"), Expression.literal(""))
+            ),
+            PropertyFactory.textSize(10.5f),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textColor(Expression.get("color")),
+            PropertyFactory.textHaloColor("#FFFFFF"),
+            PropertyFactory.textHaloWidth(1.8f),
+            PropertyFactory.textMaxWidth(9f),
+            PropertyFactory.textOffset(arrayOf(0f, 1.1f)),
+            PropertyFactory.textAllowOverlap(false),
+            PropertyFactory.textPadding(2f),
+            PropertyFactory.textOptional(true)
+        )
+        dangerLabelLayer.setMinZoom(DANGER_LABEL_MIN_ZOOM)
+        st.addLayer(dangerLabelLayer)
         // 自定义图层
         st.addSource(geoSource(LayerIds.SRC_CUSTOM, empty))
         st.addLayer(
@@ -752,6 +772,8 @@ class MapController {
         const val AREA_LABEL_MIN_ZOOM = 3f
         /** 业务点位名称（收藏点等）：放大到近景才显示，避免低缩放全屏文字卡顿 */
         const val POINT_LABEL_MIN_ZOOM = 12f
+        /** 危险点标注：比通用点位更早显示（巡检核心信息） */
+        const val DANGER_LABEL_MIN_ZOOM = 10f
         /** 杆塔图标在极低缩放不绘制，全省视野几千个图标会拖慢渲染 */
         const val TOWER_ICON_MIN_ZOOM = 5f
     }

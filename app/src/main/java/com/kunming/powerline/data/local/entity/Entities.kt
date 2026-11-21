@@ -129,21 +129,103 @@ data class GuardianEntity(
 )
 
 /**
- * 危险点
+ * 危险点数据集（1.6.4）
+ *
+ * 一个导入的 CSV / 表格就是一个「危险点图层」，可单独控制显示 / 隐藏。
+ * 过去危险点是一张平铺表，几十条报告混在一起无法按线路、按批次区分，
+ * 现在按来源文件分组，既保留批次边界，也能整层开关。
  */
-@Entity(tableName = "danger_point", indices = [Index("lineId")])
+@Entity(tableName = "danger_layer")
+data class DangerLayerEntity(
+    @PrimaryKey val id: String,
+    /** 图层名，默认取文件名（去扩展名） */
+    val name: String,
+    val fileName: String? = null,
+    /** 由「杆塔区间」或文件名推断的线路名，仅用于展示与筛选 */
+    val lineName: String? = null,
+    val visible: Boolean = true,
+    val featureCount: Int = 0,
+    val sourceFormat: String = "csv",
+    val remark: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * 危险点（净空危险点 / 施工隐患等）
+ *
+ * 1.6.4 起支持从「净空危险点报告汇总表」CSV 导入，字段按报告原样保留：
+ * 杆塔区间、测量时间、高度、档距、距小号塔距离、地物类型、
+ * 水平 / 垂直 / 净空实测距离、缺陷等级、安全距离、植被类型。
+ *
+ * `type` / `level` 为 1.6.3 及以前的老字段，导入时同步写入
+ * （type = 地物类型，level = 缺陷等级），保证旧界面、旧搜索结果不失效。
+ */
+@Entity(
+    tableName = "danger_point",
+    indices = [Index("lineId"), Index("layerId")]
+)
 data class DangerPointEntity(
     @PrimaryKey val id: String,
     val lineId: String? = null,
+    /** 所属危险点图层；为空表示 1.6.3 及以前的手工点 / 旧数据 */
+    val layerId: String? = null,
     val type: String,
-    /** 等级：Ⅰ/Ⅱ/Ⅲ */
+    /** 等级：Ⅰ/Ⅱ/Ⅲ（老数据）或 重大/紧急/一般（报告导入） */
     val level: String = "Ⅲ",
     val measure: String? = null,
     val lon: Double,
     val lat: Double,
     val towerNumber: String? = null,
-    val remark: String? = null
-)
+    val remark: String? = null,
+    // ---- 净空危险点报告字段 ----
+    /** 报告序号 */
+    val seqNo: String? = null,
+    /** 杆塔区间，如 01—02 */
+    val towerSpan: String? = null,
+    /** 测量时间（原文，如 2024/7/5） */
+    val measuredAt: String? = null,
+    /** 导线高度（m） */
+    val heightM: Double? = null,
+    /** 档距（m） */
+    val spanM: Double? = null,
+    /** 距小号塔距离（m） */
+    val distSmallTowerM: Double? = null,
+    /** 地物类型：植被 / 建筑物 / 道路 … */
+    val groundType: String? = null,
+    /** 水平距离（m） */
+    val horizM: Double? = null,
+    /** 垂直距离（m） */
+    val vertM: Double? = null,
+    /** 净空实测距离（m）—— 筛选与默认标注的主字段 */
+    val clearanceM: Double? = null,
+    /** 缺陷等级：重大 / 紧急 / 一般 */
+    val defectLevel: String? = null,
+    /** 安规要求的安全距离（m） */
+    val safeDistanceM: Double? = null,
+    /** 植被类型（无此列时回退为地物类型） */
+    val vegetationType: String? = null
+) {
+    /** 地图标注用：地物类型 + 净空距离，如「植被 6.5m」 */
+    val mapLabel: String
+        get() {
+            val g = (groundType ?: vegetationType ?: type).ifBlank { "危险点" }
+            val c = clearanceM
+            return if (c != null) "$g ${fmt1(c)}m" else g
+        }
+
+    /** 缺陷等级色（重大红 / 紧急橙 / 一般黄） */
+    val levelColor: String
+        get() = when ((defectLevel ?: level).trim()) {
+            "重大", "Ⅰ", "1", "I" -> "#D32F2F"
+            "紧急", "Ⅱ", "2", "II" -> "#F57C00"
+            "一般", "Ⅲ", "3", "III" -> "#FBC02D"
+            else -> "#F57C00"
+        }
+
+    private fun fmt1(v: Double): String =
+        if (v == v.toLong().toDouble()) v.toLong().toString()
+        else String.format(java.util.Locale.US, "%.2f", v)
+}
 
 /**
  * 收藏点

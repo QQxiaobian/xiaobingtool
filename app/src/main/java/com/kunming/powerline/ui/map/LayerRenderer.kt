@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kunming.powerline.data.local.entity.CrossingEntity
 import com.kunming.powerline.data.local.entity.CustomOverlayEntity
+import com.kunming.powerline.data.local.entity.DangerLayerEntity
 import com.kunming.powerline.data.local.entity.DangerPointEntity
 import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
@@ -23,6 +24,7 @@ import com.kunming.powerline.data.local.entity.CableEntity
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.ui.layer.LayerIds
 import com.kunming.powerline.ui.layer.MapLayer
+import com.kunming.powerline.util.DangerFilter
 import com.kunming.powerline.util.TowerVisibility
 import com.kunming.powerline.util.VoltagePalette
 import kotlinx.coroutines.Dispatchers
@@ -93,11 +95,19 @@ object LayerRenderer {
         voltageFilter: Set<Int>,
         textSize: Float,
         selectedTowerId: String?,
-        labelZoom: Float = MapController.LABEL_MIN_ZOOM
+        labelZoom: Float = MapController.LABEL_MIN_ZOOM,
+        /** 1.6.4：被单独隐藏的线路 id */
+        hiddenLineIds: Set<String> = emptySet(),
+        /** 1.6.4：危险点图层（一个 CSV 报告一层） */
+        dangerLayers: List<DangerLayerEntity> = emptyList(),
+        /** 1.6.4：危险点筛选（净空距离 / 植被类型） */
+        dangerFilter: DangerFilter = DangerFilter()
     ) = withContext(Dispatchers.Default) {
         // ---- 线路 ----
+        // 电压等级是第一层筛选，单条线路开关是第二层（1.6.4）
+        val shownLines = lines.filter { it.voltageLevel in voltageFilter && it.id !in hiddenLineIds }
         val towersByLine = towers.groupBy { it.lineId }
-        val lineFeatures = lines.filter { it.voltageLevel in voltageFilter }.mapNotNull { l ->
+        val lineFeatures = shownLines.mapNotNull { l ->
             val ts = towersByLine[l.id].orEmpty().sortedBy { it.seq }
             if (ts.size < 2) return@mapNotNull null
             val coords = ts.map { Point.fromLngLat(it.lon, it.lat) }
@@ -111,7 +121,7 @@ object LayerRenderer {
         }
         // ---- 线路名称标注 ----
         // 沿线排布（长线路放大后重复出现）+ 中点固定（短线也一定能看到名称）
-        val visibleLines = lines.filter { it.voltageLevel in voltageFilter }
+        val visibleLines = shownLines
         val lineLabelFeatures = visibleLines.mapNotNull { l ->
             val ts = towersByLine[l.id].orEmpty().sortedBy { it.seq }
             if (ts.size < 2) return@mapNotNull null
@@ -147,8 +157,8 @@ object LayerRenderer {
             }
         }
         // ---- 杆塔（含同塔多回视觉偏移）----
-        // 与线路共用电压等级筛选：关闭的等级不再残留杆塔点，仅保留可见等级的线路
-        val visibleTowers = TowerVisibility.filter(towers, lines, voltageFilter)
+        // 与线路共用电压等级筛选 + 单条线路显隐：线路隐藏时其杆塔一并消失
+        val visibleTowers = TowerVisibility.filter(towers, shownLines, voltageFilter, hiddenLineIds)
         val towerFeatures = buildTowerFeatures(visibleTowers, lines, textSize, selectedTowerId)
 
         // ---- 收藏点 ----
@@ -188,12 +198,21 @@ object LayerRenderer {
                 addStringProperty("name", g.name)
             }
         }
-        // ---- 危险点 ----
-        val dangerFeatures = dangers.map { d ->
+        // ---- 危险点（1.6.4：按图层显隐 + 净空/植被筛选）----
+        val dangerLayerVisible = dangerLayers.associate { it.id to it.visible }
+        val shownDangers = dangers.filter { d ->
+            // layerId 为空 = 1.6.3 及以前的手工点，不受图层开关约束
+            val byLayer = d.layerId?.let { dangerLayerVisible[it] } ?: true
+            byLayer && dangerFilter.matches(d)
+        }
+        val dangerFeatures = shownDangers.map { d ->
             Feature.fromGeometry(Point.fromLngLat(d.lon, d.lat)).apply {
                 addStringProperty("fid", d.id)
                 addStringProperty("type", d.type)
-                addStringProperty("level", d.level)
+                addStringProperty("level", d.defectLevel ?: d.level)
+                // 默认标注「地物类型 + 净空距离」，由专用图层 LYR_DANGER_LABEL 渲染
+                addStringProperty("label", d.mapLabel)
+                addStringProperty("color", d.levelColor)
             }
         }
         // ---- 交叉跨越 ----
@@ -359,9 +378,8 @@ object LayerRenderer {
         if (layerOn(MapLayer.GUARDIAN)) {
             guardians.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lastLon, it.lastLat, it.name, "#1B5E20") }
         }
-        if (layerOn(MapLayer.DANGER)) {
-            dangers.mapNotNullTo(pointLabelFeatures) { pointLabel(it.lon, it.lat, it.type, "#B71C1C") }
-        }
+        // 危险点名称不再进统一的 POINT_LABEL（minZoom 12），改由 LYR_DANGER_LABEL
+        // 在 10 级就显示「地物类型 + 净空距离」—— 这正是巡检最需要先看到的信息。
 
         withContext(Dispatchers.Main) {
             // 名称显示阈值（低于该级别不排版文字，减少密集数据卡顿）
@@ -398,6 +416,7 @@ object LayerRenderer {
             ctrl.setLayerVisible(LayerIds.LYR_CAMERA, layerOn(MapLayer.CAMERA))
             ctrl.setLayerVisible(LayerIds.LYR_GUARDIAN, layerOn(MapLayer.GUARDIAN))
             ctrl.setLayerVisible(LayerIds.LYR_DANGER, layerOn(MapLayer.DANGER))
+            ctrl.setLayerVisible(LayerIds.LYR_DANGER_LABEL, layerOn(MapLayer.DANGER))
             ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_FILL, layerOn(MapLayer.THEMATIC))
             ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_LINE, layerOn(MapLayer.THEMATIC))
             ctrl.setLayerVisible(LayerIds.LYR_THEMATIC_POINT, layerOn(MapLayer.THEMATIC))

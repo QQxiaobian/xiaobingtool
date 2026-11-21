@@ -80,6 +80,8 @@ object LayerIds {
 
     const val SRC_DANGER = "src-danger"
     const val LYR_DANGER = "lyr-danger"
+    /** 1.6.4：危险点标注「地物类型 + 净空距离」，10 级即显示 */
+    const val LYR_DANGER_LABEL = "lyr-danger-label"
 
     // 专题图层（导入的点 / 线 / 面要素）
     const val SRC_THEMATIC = "src-thematic"

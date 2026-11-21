@@ -4,11 +4,13 @@ import com.kunming.powerline.data.local.AppDatabase
 import com.kunming.powerline.data.local.entity.CameraEntity
 import com.kunming.powerline.data.local.entity.CrossingEntity
 import com.kunming.powerline.data.local.entity.CustomOverlayEntity
+import com.kunming.powerline.data.local.entity.DangerLayerEntity
 import com.kunming.powerline.data.local.entity.DangerPointEntity
 import com.kunming.powerline.data.local.entity.FavoriteEntity
 import com.kunming.powerline.data.local.entity.GuardianEntity
 import com.kunming.powerline.data.local.entity.PhotoEntity
 import com.kunming.powerline.data.local.entity.TakeoffPointEntity
+import com.kunming.powerline.data.parser.DangerCsvParser
 import com.kunming.powerline.data.parser.ImportFeature
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -47,6 +49,68 @@ class PointRepository @Inject constructor(private val db: AppDatabase) {
 
     suspend fun upsertDanger(d: DangerPointEntity) = dao.upsertDanger(d)
     suspend fun deleteDanger(id: String) = dao.deleteDanger(id)
+
+    // ---- 危险点图层（1.6.4） ----
+    val dangerLayers: Flow<List<DangerLayerEntity>> = dao.observeDangerLayers()
+
+    suspend fun dangerLayersOnce() = dao.getDangerLayers()
+    suspend fun setDangerLayerVisible(id: String, visible: Boolean) =
+        dao.setDangerLayerVisible(id, visible)
+
+    suspend fun deleteDangerLayer(id: String) {
+        dao.deleteDangersByLayer(id)
+        dao.deleteDangerLayer(id)
+    }
+
+    /**
+     * 把一个 CSV 报告写入一个危险点图层。
+     *
+     * 同名图层复用时先清空旧点，保证「同一份报告重复导入」不会翻倍。
+     * @return 实际写入的点数
+     */
+    suspend fun saveDangerLayer(
+        layerId: String,
+        layer: DangerLayerEntity,
+        records: List<DangerCsvParser.Record>,
+        lineId: String? = null,
+        remark: String? = null
+    ): Int {
+        dao.upsertDangerLayer(
+            layer.copy(id = layerId, featureCount = records.size, remark = remark ?: layer.remark)
+        )
+        if (records.isEmpty()) return 0
+        dao.deleteDangersByLayer(layerId)
+        val points = records.mapIndexed { i, r ->
+            DangerPointEntity(
+                id = "DG-$layerId-${i + 1}",
+                layerId = layerId,
+                lineId = lineId,
+                // 老字段同步写入，保证旧界面与全局搜索仍能用
+                type = r.groundType ?: r.vegetationType ?: "危险点",
+                level = r.defectLevel ?: "Ⅲ",
+                measure = null,
+                lon = r.lon,
+                lat = r.lat,
+                towerNumber = r.towerSpan,
+                remark = null,
+                seqNo = r.seqNo,
+                towerSpan = r.towerSpan,
+                measuredAt = r.measuredAt,
+                heightM = r.heightM,
+                spanM = r.spanM,
+                distSmallTowerM = r.distSmallTowerM,
+                groundType = r.groundType,
+                horizM = r.horizM,
+                vertM = r.vertM,
+                clearanceM = r.clearanceM,
+                defectLevel = r.defectLevel,
+                safeDistanceM = r.safeDistanceM,
+                vegetationType = r.vegetationType
+            )
+        }
+        dao.upsertDangers(points)
+        return points.size
+    }
 
     suspend fun upsertCrossing(c: CrossingEntity) = dao.upsertCrossing(c)
     suspend fun deleteCrossing(id: String) = dao.deleteCrossing(id)
