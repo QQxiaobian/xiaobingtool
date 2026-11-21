@@ -6,7 +6,7 @@
 台账校验、线路导入与数据同步。
 
 - **包名**：`com.kunming.powerline`
-- **当前版本**：1.6.4（versionCode 32）
+- **当前版本**：1.6.5（versionCode 33）
 - **minSdk**：26（Android 8.0） · **targetSdk / compileSdk**：34（Android 14）
 - **构建**：AGP 8.5.2 / Gradle 8.7 / Kotlin 1.9.24 / JDK 17
 - **架构**：MVVM + 单 Activity + Compose Navigation + Hilt

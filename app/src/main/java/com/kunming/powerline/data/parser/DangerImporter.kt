@@ -39,22 +39,30 @@ class DangerImporter @Inject constructor(
     }
 
     /** 文件名 → 图层名：去扩展名；超过 40 字保留前 38 字加省略号 */
-    fun layerNameOf(fileName: String): String {
-        val base = fileName.substringBeforeLast('.', fileName).trim().ifBlank { "危险点图层" }
-        return if (base.length <= 40) base else base.take(38) + "…"
-    }
+    fun layerNameOf(fileName: String): String = Companion.layerNameOf(fileName)
 
     /**
      * 从文件名推断线路名：`110kV松万线（…）实时工况净空危险点报告_汇总表` → `110kV松万线`
-     * 只做保守提取，识别不到返回 null（由上层用已有线路名匹配兜底）。
+     *
+     * 现场线路名里常见罗马数字（Ⅰ/Ⅱ/Ⅲ）、全角括号、下划线，字符类不能只收
+     * 中文与字母数字，否则 `220kV昆钢Ⅰ回线` 会被从「回线」重新匹配成「回线」。
+     * 这里用「排除分隔符 + 非贪婪到第一个『线』」的写法，兼容各类命名。
+     * 识别不到返回 null（由上层用已有线路名匹配兜底）。
      */
-    fun guessLineName(fileName: String): String? {
-        val base = fileName.substringBeforeLast('.', fileName)
-        val m = Regex("""(\d{2,4}\s*kV)?\s*([\u4e00-\u9fa5A-Za-z0-9]{1,12}线)""")
-            .find(base) ?: return null
-        val kv = m.groupValues[1].replace(" ", "")
-        val line = m.groupValues[2]
-        return (kv + line).ifBlank { null }
+    fun guessLineName(fileName: String): String? = Companion.guessLineName(fileName)
+
+    companion object {
+        fun layerNameOf(fileName: String): String {
+            val base = fileName.substringBeforeLast('.', fileName).trim().ifBlank { "危险点图层" }
+            return if (base.length <= 40) base else base.take(38) + "…"
+        }
+
+        fun guessLineName(fileName: String): String? {
+            val base = fileName.substringBeforeLast('.', fileName)
+            // 排除空白、括号、逗号顿号、斜杠与下划线；非贪婪取到第一个「线」
+            val m = Regex("""[^\s（()），,、/\\_]{1,20}?线""").find(base) ?: return null
+            return m.value.trim().ifBlank { null }
+        }
     }
 
     private fun openStream(uri: Uri): InputStream? =
