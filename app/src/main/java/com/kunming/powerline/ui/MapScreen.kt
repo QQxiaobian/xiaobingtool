@@ -77,6 +77,7 @@ import com.kunming.powerline.ui.theme.HintGray
 import com.kunming.powerline.ui.theme.PowerRed
 import com.kunming.powerline.ui.theme.PowerRedLight
 import com.kunming.powerline.util.FileSaver
+import com.kunming.powerline.util.MapBearing
 import com.kunming.powerline.util.MapPointKind
 import com.kunming.powerline.util.MapPointTypes
 import com.kunming.powerline.util.VoltageStats
@@ -236,14 +237,16 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         }
     }
 
-    // 真北 / 磁北罗盘跟随：地图方位 = -罗盘方位
+    // 真北 / 磁北罗盘跟随：车头朝上，地图 bearing = 设备罗盘方位
+    // （MapLibre 的 bearing 是「屏幕上方对应的罗盘方位」，设备朝东就应让东在上，
+    //  故用正号；此前误用 -az 导致地图与手机同向转、方位相反。）
     LaunchedEffect(trueNorth, followMode, controller.ready) {
         if (!trueNorth || followMode || !controller.ready) return@LaunchedEffect
         vm.compass.azimuthFlow(
             trueNorth = { trueNorth },
             location = { myLoc?.let { it.lon to it.lat } }
         ).collect { az ->
-            if (trueNorth) controller.rotateTo(-az.toDouble())
+            if (trueNorth) controller.rotateTo(MapBearing.fromDeviceHeading(az))
         }
     }
 
@@ -268,11 +271,11 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
         LayerRenderer.renderMyLocation(controller, loc.lon, loc.lat, loc.accuracy, heading)
     }
 
-    // 跟随模式下，手机转向时地图跟着转（正上方 = 手机朝向）
+    // 跟随模式下，手机转向时地图跟着转（正上方 = 手机朝向，bearing = 设备方位）
     LaunchedEffect(heading, followMode, controller.ready) {
         if (!followMode || !controller.ready) return@LaunchedEffect
-        val target = -heading.toDouble()
-        if (Math.abs(((target - controller.currentBearing + 540.0) % 360.0) - 180.0) >= 3.0) {
+        val target = MapBearing.fromDeviceHeading(heading)
+        if (MapBearing.shortestDelta(target, controller.currentBearing) >= 3.0) {
             controller.rotateTo(target)
         }
     }
@@ -304,7 +307,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 // 用 moveCamera 而非动画，避免每 2 秒一次的定位回调造成画面抖动；
                 // 缩放交给用户（这里不改 zoom，避免用户缩小后被强制拉回）
                 controller.moveTo(loc.lon, loc.lat, null, animate = false)
-                controller.rotateTo(-heading.toDouble())
+                controller.rotateTo(MapBearing.fromDeviceHeading(heading))
             }
         }
     }
@@ -482,7 +485,7 @@ fun MapScreen(vm: MapViewModel = hiltViewModel()) {
                 val loc = myLoc
                 if (loc != null) {
                     controller.easeTo(loc.lon, loc.lat, 16.0)
-                    controller.rotateTo(-heading.toDouble())
+                    controller.rotateTo(MapBearing.fromDeviceHeading(heading))
                 } else {
                     vm.locateOnce { fix -> controller.easeTo(fix.lon, fix.lat, 16.0) }
                 }
